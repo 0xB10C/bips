@@ -1,0 +1,454 @@
+{
+ "bip": "tcp-holepunch",
+ "version": "0.2.0",
+ "feature_id": "https://delvingbitcoin.org/t/2497",
+ "caps": {
+  "COORDINATOR": 1,
+  "ADVERTISED": 2,
+  "POOL_OK": 4,
+  "HANDOFF_OK": 8,
+  "PUNCHPORT": 16
+ },
+ "holepunch_network_id": 8,
+ "messages_valid": [
+  {
+   "kind": "feature_data",
+   "description": "version 0, ADVERTISED|PUNCHPORT (advertiser to coordinator)",
+   "hex": "0012000000",
+   "decoded": {
+    "version": 0,
+    "caps": 18
+   }
+  },
+  {
+   "kind": "feature_data",
+   "description": "version 0, COORDINATOR",
+   "hex": "0001000000",
+   "decoded": {
+    "version": 0,
+    "caps": 1
+   }
+  },
+  {
+   "kind": "feature_data",
+   "description": "version 0, all defined caps",
+   "hex": "001f000000",
+   "decoded": {
+    "version": 0,
+    "caps": 31
+   }
+  },
+  {
+   "kind": "feature_data",
+   "description": "version 0, no caps (plain participant)",
+   "hex": "0000000000",
+   "decoded": {
+    "version": 0,
+    "caps": 0
+   }
+  },
+  {
+   "kind": "feature_data",
+   "description": "version 0, unknown high bit set (must be ignored)",
+   "hex": "0000000080",
+   "decoded": {
+    "version": 0,
+    "caps": 2147483648
+   }
+  },
+  {
+   "kind": "rendezvous",
+   "description": "IPv4 target and requester",
+   "hex": "0104cb007101208f0104c6336402c3cb",
+   "decoded": {
+    "target": {
+     "net": 1,
+     "addr": "cb007101",
+     "port": 8335
+    },
+    "requester": {
+     "net": 1,
+     "addr": "c6336402",
+     "port": 50123
+    }
+   }
+  },
+  {
+   "kind": "rendezvous",
+   "description": "IPv6 target and requester",
+   "hex": "021020010db8000000000000000000000001208f021020010db8000000000000000000000002479f",
+   "decoded": {
+    "target": {
+     "net": 2,
+     "addr": "20010db8000000000000000000000001",
+     "port": 8335
+    },
+    "requester": {
+     "net": 2,
+     "addr": "20010db8000000000000000000000002",
+     "port": 18335
+    }
+   }
+  },
+  {
+   "kind": "rendezvous",
+   "description": "requester port 0 (encodable; rejected by R-5.1 semantics, not parsing)",
+   "hex": "0104cb007101208f0104c63364020000",
+   "decoded": {
+    "target": {
+     "net": 1,
+     "addr": "cb007101",
+     "port": 8335
+    },
+    "requester": {
+     "net": 1,
+     "addr": "c6336402",
+     "port": 0
+    }
+   }
+  },
+  {
+   "kind": "punch",
+   "description": "PI with IPv4 peer",
+   "hex": "010104cb007101208f",
+   "decoded": {
+    "role": 1,
+    "peer": {
+     "net": 1,
+     "addr": "cb007101",
+     "port": 8335
+    }
+   }
+  },
+  {
+   "kind": "punch",
+   "description": "PR with IPv4 peer",
+   "hex": "000104c6336402c3cb",
+   "decoded": {
+    "role": 0,
+    "peer": {
+     "net": 1,
+     "addr": "c6336402",
+     "port": 50123
+    }
+   }
+  },
+  {
+   "kind": "punch",
+   "description": "PI with IPv6 peer",
+   "hex": "01021020010db8000000000000000000000001208f",
+   "decoded": {
+    "role": 1,
+    "peer": {
+     "net": 2,
+     "addr": "20010db8000000000000000000000001",
+     "port": 8335
+    }
+   }
+  }
+ ],
+ "messages_invalid": [
+  {
+   "kind": "rendezvous",
+   "description": "family mismatch (IPv4 target, IPv6 requester)",
+   "hex": "0104cb007101208f021020010db8000000000000000000000002479f",
+   "reason": "R-4.3",
+   "detected": "target and requester family differ (R-4.3)"
+  },
+  {
+   "kind": "rendezvous",
+   "description": "target with TORV3 net",
+   "hex": "042053cd5648af46a92b5b74b7f8f6bd3bb86e5d9ab77c5f0e03a5b43a1b4bbef6ac208d0104c6336402c3cb",
+   "reason": "R-4.2 endpoint net",
+   "detected": "endpoint net must be IPV4 or IPV6 (R-4.2)"
+  },
+  {
+   "kind": "rendezvous",
+   "description": "IPv4 target with addr_len 5",
+   "hex": "0105010101010100010104c6336402c3cb",
+   "reason": "R-4.2 addr_len mismatch",
+   "detected": "addr_len does not match net (R-4.2)"
+  },
+  {
+   "kind": "rendezvous",
+   "description": "trailing byte",
+   "hex": "0104cb007101208f0104c6336402c3cb00",
+   "reason": "R-4.1 trailing bytes",
+   "detected": "trailing bytes (R-4.1)"
+  },
+  {
+   "kind": "rendezvous",
+   "description": "truncated requester port",
+   "hex": "0104cb007101208f0104c6336402c3",
+   "reason": "R-4.1 missing bytes",
+   "detected": "truncated port"
+  },
+  {
+   "kind": "rendezvous",
+   "description": "non-minimal CompactSize addr_len",
+   "hex": "01fd0400cb007101208f0104c6336402c3cb",
+   "reason": "non-minimal CompactSize",
+   "detected": "non-minimal CompactSize"
+  },
+  {
+   "kind": "punch",
+   "description": "role 2",
+   "hex": "020104cb007101208f",
+   "reason": "R-4.2 unknown role",
+   "detected": "unknown role (R-4.2)"
+  },
+  {
+   "kind": "punch",
+   "description": "peer with CJDNS net",
+   "hex": "010610fc000000000000000000000000000001208f",
+   "reason": "R-4.2 endpoint net",
+   "detected": "endpoint net must be IPV4 or IPV6 (R-4.2)"
+  },
+  {
+   "kind": "punch",
+   "description": "trailing byte",
+   "hex": "010104cb007101208f00",
+   "reason": "R-4.1 trailing bytes",
+   "detected": "trailing bytes (R-4.1)"
+  },
+  {
+   "kind": "punch",
+   "description": "empty payload",
+   "hex": "",
+   "reason": "R-4.1 missing bytes",
+   "detected": "truncated role"
+  }
+ ],
+ "holepunch_elements_valid": [
+  {
+   "description": "Profile A, IPv4 coordinator, IPv4 target (12 bytes)",
+   "element_hex": "a0fee868fd0908080c01c0000203208d01cb007101208f",
+   "addr_len": 12,
+   "decoded": {
+    "time": 1760100000,
+    "services": 2057,
+    "net": 8,
+    "addr": "01c0000203208d01cb007101",
+    "port": 8335,
+    "holepunch": {
+     "coord_net": 1,
+     "coord_addr": "c0000203",
+     "coord_port": 8333,
+     "target_net": 1,
+     "target_addr": "cb007101",
+     "profile": "A"
+    }
+   }
+  },
+  {
+   "description": "Profile A, IPv6 coordinator, IPv4 target (24 bytes)",
+   "element_hex": "a0fee868fd090808180220010db8000000000000000000000003208d01cb007101208f",
+   "addr_len": 24,
+   "decoded": {
+    "time": 1760100000,
+    "services": 2057,
+    "net": 8,
+    "addr": "0220010db8000000000000000000000003208d01cb007101",
+    "port": 8335,
+    "holepunch": {
+     "coord_net": 2,
+     "coord_addr": "20010db8000000000000000000000003",
+     "coord_port": 8333,
+     "target_net": 1,
+     "target_addr": "cb007101",
+     "profile": "A"
+    }
+   }
+  },
+  {
+   "description": "Profile A, IPv4 coordinator, IPv6 target (24 bytes, same length, parsed by net ids)",
+   "element_hex": "a0fee868fd0908081801c0000203208d0220010db8000000000000000000000001208f",
+   "addr_len": 24,
+   "decoded": {
+    "time": 1760100000,
+    "services": 2057,
+    "net": 8,
+    "addr": "01c0000203208d0220010db8000000000000000000000001",
+    "port": 8335,
+    "holepunch": {
+     "coord_net": 1,
+     "coord_addr": "c0000203",
+     "coord_port": 8333,
+     "target_net": 2,
+     "target_addr": "20010db8000000000000000000000001",
+     "profile": "A"
+    }
+   }
+  },
+  {
+   "description": "Profile A, IPv6 coordinator, IPv6 target (36 bytes)",
+   "element_hex": "a0fee868fd090808240220010db8000000000000000000000003479d0220010db8000000000000000000000001208f",
+   "addr_len": 36,
+   "decoded": {
+    "time": 1760100000,
+    "services": 2057,
+    "net": 8,
+    "addr": "0220010db8000000000000000000000003479d0220010db8000000000000000000000001",
+    "port": 8335,
+    "holepunch": {
+     "coord_net": 2,
+     "coord_addr": "20010db8000000000000000000000003",
+     "coord_port": 18333,
+     "target_net": 2,
+     "target_addr": "20010db8000000000000000000000001",
+     "profile": "A"
+    }
+   }
+  },
+  {
+   "description": "Profile B, onion coordinator, IPv4 target (40 bytes)",
+   "element_hex": "a0fee868fd090808280453cd5648af46a92b5b74b7f8f6bd3bb86e5d9ab77c5f0e03a5b43a1b4bbef6ac208d01cb007101208f",
+   "addr_len": 40,
+   "decoded": {
+    "time": 1760100000,
+    "services": 2057,
+    "net": 8,
+    "addr": "0453cd5648af46a92b5b74b7f8f6bd3bb86e5d9ab77c5f0e03a5b43a1b4bbef6ac208d01cb007101",
+    "port": 8335,
+    "holepunch": {
+     "coord_net": 4,
+     "coord_addr": "53cd5648af46a92b5b74b7f8f6bd3bb86e5d9ab77c5f0e03a5b43a1b4bbef6ac",
+     "coord_port": 8333,
+     "target_net": 1,
+     "target_addr": "cb007101",
+     "profile": "B"
+    }
+   }
+  },
+  {
+   "description": "Profile B, onion coordinator, IPv6 target (52 bytes)",
+   "element_hex": "a0fee868fd090808340453cd5648af46a92b5b74b7f8f6bd3bb86e5d9ab77c5f0e03a5b43a1b4bbef6ac208d0220010db8000000000000000000000001208f",
+   "addr_len": 52,
+   "decoded": {
+    "time": 1760100000,
+    "services": 2057,
+    "net": 8,
+    "addr": "0453cd5648af46a92b5b74b7f8f6bd3bb86e5d9ab77c5f0e03a5b43a1b4bbef6ac208d0220010db8000000000000000000000001",
+    "port": 8335,
+    "holepunch": {
+     "coord_net": 4,
+     "coord_addr": "53cd5648af46a92b5b74b7f8f6bd3bb86e5d9ab77c5f0e03a5b43a1b4bbef6ac",
+     "coord_port": 8333,
+     "target_net": 2,
+     "target_addr": "20010db8000000000000000000000001",
+     "profile": "B"
+    }
+   }
+  },
+  {
+   "description": "Profile B, I2P coordinator (port 0), IPv4 target (40 bytes)",
+   "element_hex": "a0fee868fd0908082805a2894dabaec4a6e5f84ccaa9c0b5bc64bd4e4e7f8a9f5f8c3f7aa6a4dd7e5e56000001cb007101208f",
+   "addr_len": 40,
+   "decoded": {
+    "time": 1760100000,
+    "services": 2057,
+    "net": 8,
+    "addr": "05a2894dabaec4a6e5f84ccaa9c0b5bc64bd4e4e7f8a9f5f8c3f7aa6a4dd7e5e56000001cb007101",
+    "port": 8335,
+    "holepunch": {
+     "coord_net": 5,
+     "coord_addr": "a2894dabaec4a6e5f84ccaa9c0b5bc64bd4e4e7f8a9f5f8c3f7aa6a4dd7e5e56",
+     "coord_port": 0,
+     "target_net": 1,
+     "target_addr": "cb007101",
+     "profile": "B"
+    }
+   }
+  },
+  {
+   "description": "Profile B, I2P coordinator (port 0), IPv6 target (52 bytes)",
+   "element_hex": "a0fee868fd0908083405a2894dabaec4a6e5f84ccaa9c0b5bc64bd4e4e7f8a9f5f8c3f7aa6a4dd7e5e5600000220010db8000000000000000000000001208f",
+   "addr_len": 52,
+   "decoded": {
+    "time": 1760100000,
+    "services": 2057,
+    "net": 8,
+    "addr": "05a2894dabaec4a6e5f84ccaa9c0b5bc64bd4e4e7f8a9f5f8c3f7aa6a4dd7e5e5600000220010db8000000000000000000000001",
+    "port": 8335,
+    "holepunch": {
+     "coord_net": 5,
+     "coord_addr": "a2894dabaec4a6e5f84ccaa9c0b5bc64bd4e4e7f8a9f5f8c3f7aa6a4dd7e5e56",
+     "coord_port": 0,
+     "target_net": 2,
+     "target_addr": "20010db8000000000000000000000001",
+     "profile": "B"
+    }
+   }
+  },
+  {
+   "description": "NAT-chosen target port in the element port field",
+   "element_hex": "a0fee868fd0908080c01c0000203208d01c6336402c3cb",
+   "addr_len": 12,
+   "decoded": {
+    "time": 1760100000,
+    "services": 2057,
+    "net": 8,
+    "addr": "01c0000203208d01c6336402",
+    "port": 50123,
+    "holepunch": {
+     "coord_net": 1,
+     "coord_addr": "c0000203",
+     "coord_port": 8333,
+     "target_net": 1,
+     "target_addr": "c6336402",
+     "profile": "A"
+    }
+   }
+  }
+ ],
+ "holepunch_elements_invalid": [
+  {
+   "description": "length 13 (trailing byte in addr)",
+   "element_hex": "a0fee868fd0908080d01c0000203208d01cb00710100208f",
+   "reason": "R-6.1 invalid length",
+   "detected": "invalid HOLEPUNCH length 13 (R-6.1)"
+  },
+  {
+   "description": "length 11 (truncated target)",
+   "element_hex": "a0fee868fd0908080b01c0000203208d01cb0071208f",
+   "reason": "R-6.1 invalid length",
+   "detected": "invalid HOLEPUNCH length 11 (R-6.1)"
+  },
+  {
+   "description": "length 24 with inconsistent net ids (IPv4 coordinator, IPv4 target, padded)",
+   "element_hex": "a0fee868fd0908081801c0000203208d01cb007101000000000000000000000000208f",
+   "reason": "R-6.1 parsed length mismatch",
+   "detected": "invalid HOLEPUNCH length (R-6.1)"
+  },
+  {
+   "description": "coord_net CJDNS",
+   "element_hex": "a0fee868fd0908081806fc000000000000000000000000000001208d01cb007101208f",
+   "reason": "R-6.1 unknown coord_net",
+   "detected": "unknown coord_net (R-6.1)"
+  },
+  {
+   "description": "target_net TORV3",
+   "element_hex": "a0fee868fd0908082801c0000203208d0453cd5648af46a92b5b74b7f8f6bd3bb86e5d9ab77c5f0e03a5b43a1b4bbef6ac208f",
+   "reason": "R-6.1 unknown target_net",
+   "detected": "unknown target_net (R-6.1)"
+  },
+  {
+   "description": "I2P coordinator with non-zero port",
+   "element_hex": "a0fee868fd0908082805a2894dabaec4a6e5f84ccaa9c0b5bc64bd4e4e7f8a9f5f8c3f7aa6a4dd7e5e56000101cb007101208f",
+   "reason": "I2P coord_port must be 0",
+   "detected": "I2P coord_port must be 0"
+  },
+  {
+   "description": "services without NODE_P2P_V2",
+   "element_hex": "a0fee86801080c01c0000203208d01cb007101208f",
+   "reason": "R-3.3 services lack NODE_P2P_V2",
+   "detected": "services lack NODE_P2P_V2 (R-3.3)"
+  },
+  {
+   "description": "empty addr",
+   "element_hex": "a0fee868fd09080800208f",
+   "reason": "R-6.1 invalid length",
+   "detected": "invalid HOLEPUNCH length 0 (R-6.1)"
+  }
+ ]
+}

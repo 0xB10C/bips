@@ -406,10 +406,11 @@ belongs to the advertiser itself.
 - R-7.2 A connector MUST NOT start more than one coordination attempt per
   `HP_ATTEMPT_INTERVAL` (5 min) and MUST drop a cache entry after one
   attempt, whatever its outcome.
-- R-7.3 Profile A: the connector sends `rendezvous` on its existing
-  connection to `coord_addr:coord_port` if it has one (R-1.1 makes it a
-  punch-port connection), and otherwise opens one from a punch-port socket
-  with `PUNCHPORT` set and waits for the feature exchange first. Profile
+- R-7.3 Profile A: the connector reuses an existing outbound connection
+  to `coord_addr:coord_port` only if it sent `PUNCHPORT` on that connection.
+  Otherwise it opens one from a punch-port socket with `PUNCHPORT` set.
+  Before sending `rendezvous`, it MUST complete the feature exchange and
+  verify that the coordinator advertised `COORDINATOR`. Profile
   B: it opens a connection over Tor (or I2P) to `coord_addr` with stream
   isolation. In both cases the response deadline is `COORD_TIMEOUT_MS`
   (10000 ms) after sending `rendezvous`. If no accepted answering `punch`

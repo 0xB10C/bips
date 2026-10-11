@@ -57,8 +57,8 @@ Terminal: CONNECTED, FAILED (I-6).
 | State | Event | Action | Next |
 |-------|-------|--------|------|
 | IDLE | valid `HOLEPUNCH` element received | insert into cache (caps, TTL) | IDLE |
-| IDLE | free hole-punch outbound slot, `HP_ATTEMPT_INTERVAL` elapsed, eligible cache entry (R-7.1) | remove entry; Profile A: use the existing connection to the coordinator if any, else open one from punch port with `PUNCHPORT`; Profile B: Tor (stream isolation) to onion | COORDINATING |
-| COORDINATING | feature exchange complete (immediate on an existing connection) | send `rendezvous(target, own external address)`; start `COORD_TIMEOUT_MS` | WAITING |
+| IDLE | free hole-punch outbound slot, `HP_ATTEMPT_INTERVAL` elapsed, eligible cache entry (R-7.1) | remove entry; Profile A: reuse an outbound connection with `PUNCHPORT` sent, or open one from the punch port; Profile B: Tor (stream isolation) to onion | COORDINATING |
+| COORDINATING | feature exchange complete; Profile A peer advertised `COORDINATOR` | send `rendezvous(target, own external address)`; start `COORD_TIMEOUT_MS` | WAITING |
 | WAITING | `punch(initiator, peer)` with `peer == target` and R-5.1 passes | complete outstanding request; start Session(initiator); Profile A: set connection liveness deadline from receipt of this `punch` | IN_SESSION |
 | WAITING | answering `punch` fails any R-5.1 check, including `peer != target` or role responder | ignore; optionally close the connection; if retained, keep the request outstanding and its original deadline unchanged (R-4.4) | WAITING / IDLE |
 | WAITING | timeout or disconnect | close a connection opened only for coordination | IDLE |

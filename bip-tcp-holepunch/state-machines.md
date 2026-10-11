@@ -4,7 +4,7 @@ Each table lists (state, event, action, next state). Rule numbers refer
 to the main document. Events not listed for a state are ignored, except
 protocol errors, which close the connection they arrived on.
 
-## Session (one per accepted `punch`, both parties)
+## Session (one per accepted `punch` or Profile B `rendezvous`)
 
 Key: (local punch port, `peer`). Window = `WINDOW_MS` from session start.
 For a recipient of `punch`, this is its receipt time. A Profile B advertiser
@@ -13,7 +13,7 @@ starts on acceptance of a validated `rendezvous` (R-12.5).
 | State | Event | Action | Next |
 |-------|-------|--------|------|
 | (none) | `punch` received, R-5.1 fails (incl. answering `punch` whose `peer` != `rendezvous` target, or unsolicited `punch` without matching cap) | ignore; optionally close the connection | (none) |
-| (none) | `punch` received, valid | reserve inbound slot (responder) or hole-punch outbound slot (initiator); start window timer; open punch-port socket; `connect(peer)` | PUNCHING |
+| (none) | valid `punch` received, or Profile B advertiser accepts a validated `rendezvous` | reserve inbound slot (responder) or hole-punch outbound slot (initiator); start window timer; open punch-port socket; `connect(peer)` | PUNCHING |
 | PUNCHING | attempt fails (reset, unreachable, immediate error) | close socket; start `RETRY_MS` timer | WAITING_RETRY |
 | PUNCHING | attempt fails because the 4-tuple is in use | close socket; do not retry; await a matching listener socket until the session deadline (R-5.6) | PUNCHING |
 | WAITING_RETRY | retry timer fires, window not over | open punch-port socket; `connect(peer)` | PUNCHING |
@@ -48,7 +48,8 @@ Terminal: CONNECTED, FAILED (I-6).
 | HAS_ADDRESS | Profile A: outbound to a `COORDINATOR` peer open with `ADVERTISED` + `PUNCHPORT` sent; Profile B: current non-retiring coordination onion service published and within its announcement lifetime | eligible to announce | READY |
 | READY | announce timer (`ANNOUNCE_INTERVAL`) and free inbound slot | send `HOLEPUNCH` element (R-6.4 restricts Profile B to clearnet peers) | READY |
 | READY | no free inbound slot, or external address dropped, or (A) coordinator connection closed | stop announcing | HAS_ADDRESS / NOT_EIM |
-| READY | (A) unsolicited `punch(responder)` from coordinator; (B) `rendezvous` on coordination endpoint valid per R-12.4 | (B) send `punch(initiator, peer=target)`, close the coordination connection; start Session(responder, peer=requester) | READY (+session) |
+| READY | (A) unsolicited `punch(responder)` that passes R-5.1 | start Session(responder, peer=`punch.peer`) | READY (+session) |
+| READY | (B) `rendezvous` on coordination endpoint valid per R-12.4 | start Session(responder, peer=requester); send `punch(initiator, peer=target)` and drain it to the socket by the original R-12.2 deadline before closing | READY (+session) |
 | READY | (B) `ONION_ROTATE_H` elapsed since first announcement | stop announcing old identity; generate and publish new onion key; keep old endpoint reachable for `CACHE_TTL + 10 min` after its last announcement | HAS_ADDRESS |
 
 ## Connector
@@ -90,5 +91,7 @@ inbound on A's coordination onion service.
 | OPEN | message other than `version`, `verack`, `feature`, `ping`, `pong`, `rendezvous`, `punch` on a dedicated Profile B coordination connection | disconnect (R-7.4) | CLOSED |
 | OPEN | local `rendezvous` already outstanding | do not send another request until an answer is accepted or the original deadline expires (R-4.4) | OPEN |
 | OPEN | connector: response deadline measured from sending `rendezvous` expires without an accepted answering `punch`; advertiser, Profile B: R-12.2 deadline expires without handshake and `rendezvous` | close a connection opened only for coordination; an existing ordinary Profile A connection stays open | OPEN / CLOSED |
-| OPEN | Profile B: `punch` sent | A closes (R-12.5) | CLOSED |
+| OPEN | Profile B: valid `rendezvous` accepted | start responder session; queue `punch`; retain original R-12.2 deadline (R-12.5) | DRAINING |
+| DRAINING | all transport bytes encoding `punch` written to socket | A closes coordination connection (R-12.5) | CLOSED |
+| DRAINING | send fails or original R-12.2 deadline expires | close coordination connection; cancel associated session if still in progress, close its sockets and release its reserved slot | CLOSED |
 | OPEN | Profile A: `WINDOW_MS + GRACE_MS` after sending `punch` (coordinator), or accepting the answering `punch` (connector) | a connection opened only for coordination may close; an existing ordinary connection stays | OPEN / CLOSED |

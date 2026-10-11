@@ -329,8 +329,8 @@ acceptance of a validated `rendezvous` under R-12.5.
   `WINDOW_MS + GRACE_MS` after sending `punch`: they are punch-port
   connections that keep the parties' NAT mappings alive. In Profile B the
   coordination connection is proxied and keeps nothing alive, so A closes
-  it right after sending `punch` (R-12.5). R-1.1 makes any node with
-  outbound peers keep its mapping alive regardless.
+  it after writing `punch` to the socket as specified in R-12.5. R-1.1
+  makes any node with outbound peers keep its mapping alive regardless.
 
 ### 6. Announcements: the `HOLEPUNCH` address type
 
@@ -598,9 +598,17 @@ acts as its own coordinator. I2P endpoints are permitted through
   address (R-2.2) and that `requester`, taken as `peer` with role responder,
   passes R-5.1. If any check fails A MUST NOT answer and MAY close the
   connection.
-- R-12.5 Otherwise A sends `punch(role=initiator, peer=target)`, closes the
-  coordination connection, and starts its own session as responder with `peer
-  = requester` (R-5.4). A MUST always assign initiator to the connector.
+- R-12.5 Otherwise A starts its own session as responder with
+  `peer = requester` (R-5.4) when it accepts the validated `rendezvous`,
+  and sends `punch(role=initiator, peer=target)`. A MUST always assign
+  initiator to the connector. A MUST write all transport bytes encoding
+  `punch` to the coordination socket before closing it; queuing the message
+  for later transmission is insufficient. The write MUST complete by the
+  original R-12.2 deadline, without restarting that deadline or delaying
+  the responder session's start. On a send failure or expiration of that
+  deadline before the write completes, A MUST close the coordination
+  connection and cancel any associated session still in progress, closing
+  its sockets and releasing its reserved slot.
 - R-12.6 B checks `peer` against `target` (R-5.1) and accounts the
   connection per R-8.1.
 

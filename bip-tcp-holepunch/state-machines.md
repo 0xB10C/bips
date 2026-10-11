@@ -15,7 +15,7 @@ starts on acceptance of a validated `rendezvous` (R-12.5).
 | (none) | `punch` received, R-5.1 fails (incl. answering `punch` whose `peer` != `rendezvous` target, or unsolicited `punch` without matching cap) | ignore; optionally close the connection | (none) |
 | (none) | `punch` received, valid | reserve inbound slot (responder) or hole-punch outbound slot (initiator); start window timer; open punch-port socket; `connect(peer)` | PUNCHING |
 | PUNCHING | attempt fails (reset, unreachable, immediate error) | close socket; start `RETRY_MS` timer | WAITING_RETRY |
-| PUNCHING | attempt fails because the 4-tuple is in use | close socket; the listener delivers the peer's connection (R-5.6) | PUNCHING |
+| PUNCHING | attempt fails because the 4-tuple is in use | close socket; do not retry; await a matching listener socket until the session deadline (R-5.6) | PUNCHING |
 | WAITING_RETRY | retry timer fires, window not over | open punch-port socket; `connect(peer)` | PUNCHING |
 | PUNCHING | `connect()` completes, remote endpoint == `peer` | session connection = this socket; initiator: send BIP 324 key; responder: wait | ESTABLISHED |
 | PUNCHING / WAITING_RETRY | listener accepts socket with remote endpoint == `peer` | close pending attempt; session connection = accepted socket; initiator: send BIP 324 key; responder: wait | ESTABLISHED |

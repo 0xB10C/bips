@@ -275,9 +275,10 @@ acceptance of a validated `rendezvous` under R-12.5.
   wait `RETRY_MS` (1000 ms), and open a new attempt, until the deadline.
   The pending `connect()` itself retransmits SYNs; the node MUST NOT run
   more than one attempt at a time per session.
-- R-5.6 An attempt that fails because the 4-tuple is already in use means
-  the listener has accepted the peer's connection (R-5.7); it is not
-  retried.
+- R-5.6 An attempt that fails because the 4-tuple is already in use MUST
+  be closed and MUST NOT be retried. This error alone does not establish
+  the session. The node waits for a matching socket from the punch-port
+  listener (R-5.7) until the session deadline in R-5.11.
 
 #### Establishment
 

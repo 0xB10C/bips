@@ -205,7 +205,8 @@ acceptance of a validated `rendezvous` under R-12.5.
   `punch` to a peer whose feature `version` differs from their own.
 - R-3.3 Participating nodes MUST advertise `NODE_P2P_V2`.
 - R-3.4 No BIP 324 1-byte message type IDs are assigned; the messages use
-  the 13-byte encoding, as each is sent at most once per connection.
+  the 13-byte encoding. A connection may carry repeated coordination
+  exchanges, subject to R-4.4 and the session and request limits.
 
 ### 4. Messages
 

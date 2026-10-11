@@ -66,16 +66,17 @@ Terminal: CONNECTED, FAILED (I-6).
 ## Coordinator (Profile A)
 
 Per inbound peer with `PUNCHPORT`: remember the observed endpoint, the
-caps, whether `rendezvous`/`punch` was already used on the connection, and the
-current session partner if any.
+caps, the time of the last `punch` sent on the connection, and the current
+session partner if any. Repeated exchanges are permitted after the relevant
+cooldown and rate limits expire.
 
 | State | Event | Action | Next |
 |-------|-------|--------|------|
 | IDLE | `rendezvous(target, requester)` from B | find inbound A with `ADVERTISED` + `PUNCHPORT` and observed == target; check B set `PUNCHPORT` and requester == obs(B), neither A nor B within `WINDOW_MS + GRACE_MS` of a previous `punch`, A/B addresses differ, family match, per-target rate (R-11.2) | |
 | IDLE | check failed | do nothing (B times out); optionally close B | IDLE |
-| IDLE | check passed | send `punch(responder, obs(B))` to A then `punch(initiator, obs(A))` to B; mark both in session; start liveness timer `WINDOW_MS + GRACE_MS` | PAIRED |
-| IDLE (pool) | two `POOL_OK` + `PUNCHPORT` peers available with different addresses, not paired within `PER_IP_INTERVAL` | roles by lexicographic endpoint order (R-11.8); send both `punch`; start liveness timer | PAIRED |
-| IDLE (handoff) | inbound full, eviction rules select X; another inbound Y exists; both `HANDOFF_OK` + `PUNCHPORT`, past `verack`, distinct addresses, no elevated permissions | roles per R-11.8; send both `punch`; start liveness timer; defer eviction of X (capacity exceeded by one) | PAIRED |
+| IDLE | check passed | send `punch(responder, obs(B))` to A then `punch(initiator, obs(A))` to B; record each send time; mark both in session; start liveness timer `WINDOW_MS + GRACE_MS` | PAIRED |
+| IDLE (pool) | two `POOL_OK` + `PUNCHPORT` peers available with different addresses, not paired within `PER_IP_INTERVAL` | roles by lexicographic endpoint order (R-11.8); send both `punch`; record each send time; start liveness timer | PAIRED |
+| IDLE (handoff) | inbound full, eviction rules select X; another inbound Y exists; both `HANDOFF_OK` + `PUNCHPORT`, past `verack`, distinct addresses, no elevated permissions | roles per R-11.8; send both `punch`; record each send time; start liveness timer; defer eviction of X (capacity exceeded by one) | PAIRED |
 | PAIRED | liveness timer fires | clear session marks; (handoff) disconnect X; connections may be closed | IDLE |
 | any | peer disconnects | forget its observation; if in session, nothing else (the other party times out) | IDLE |
 

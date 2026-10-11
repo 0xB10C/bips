@@ -228,11 +228,17 @@ acceptance of a validated `rendezvous` under R-12.5.
 - R-4.2 An endpoint with `net` other than `IPV4` or `IPV6`, an `addr_len`
   that does not match `net`, or a `role` other than 0 or 1 is malformed.
 - R-4.3 Both fields of `rendezvous` MUST have the same address family.
-- R-4.4 A `rendezvous` is *outstanding* from when it is sent until a
-  `punch` arrives on the same connection or `COORD_TIMEOUT_MS` elapses. A
-  party MUST NOT send a `rendezvous` while one is outstanding on that
-  connection. A `punch` received while a `rendezvous` is outstanding on
-  the connection *answers* it; any other `punch` is *unsolicited*. A
+- R-4.4 A `rendezvous` is *outstanding* from when it is sent until an
+  answering `punch` is accepted on the same connection or
+  `COORD_TIMEOUT_MS` elapses from sending the request. A party MUST NOT
+  send a `rendezvous` while one is outstanding on that connection. Every
+  `punch` received while the request is outstanding is an answering
+  `punch` and MUST be checked against that request under R-5.1. Only an
+  initiator `punch` whose `peer` equals the request's `target` and which
+  passes the remaining R-5.1 checks completes the request. A rejected
+  `punch` MUST NOT clear the request or restart its deadline; subsequent
+  `punch` messages remain answering messages until acceptance or timeout.
+  A `punch` received with no outstanding request is *unsolicited*. A
   coordinator MUST NOT send a `punch` to a party within
   `WINDOW_MS + GRACE_MS` of a previous `punch` it sent to that party.
 

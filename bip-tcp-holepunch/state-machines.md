@@ -58,8 +58,8 @@ Terminal: CONNECTED, FAILED (I-6).
 | IDLE | valid `HOLEPUNCH` element received | insert into cache (caps, TTL) | IDLE |
 | IDLE | free hole-punch outbound slot, `HP_ATTEMPT_INTERVAL` elapsed, eligible cache entry (R-7.1) | remove entry; Profile A: use the existing connection to the coordinator if any, else open one from punch port with `PUNCHPORT`; Profile B: Tor (stream isolation) to onion | COORDINATING |
 | COORDINATING | feature exchange complete (immediate on an existing connection) | send `rendezvous(target, own external address)`; start `COORD_TIMEOUT_MS` | WAITING |
-| WAITING | `punch(initiator, peer)` with `peer == target` and R-5.1 passes | start Session(initiator) | IN_SESSION |
-| WAITING | `punch` with `peer != target` or role responder | ignore (R-5.1); keep waiting | WAITING |
+| WAITING | `punch(initiator, peer)` with `peer == target` and R-5.1 passes | complete outstanding request; start Session(initiator); Profile A: set connection liveness deadline from receipt of this `punch` | IN_SESSION |
+| WAITING | answering `punch` fails any R-5.1 check, including `peer != target` or role responder | ignore; optionally close the connection; if retained, keep the request outstanding and its original deadline unchanged (R-4.4) | WAITING / IDLE |
 | WAITING | timeout or disconnect | close a connection opened only for coordination | IDLE |
 | IN_SESSION | session CONNECTED or FAILED | Profile A: retain a connection opened only for coordination until the receipt-based liveness deadline in R-7.3; an existing ordinary connection stays open | IDLE |
 
@@ -87,7 +87,7 @@ inbound on A's coordination onion service.
 | State | Event | Action | Next |
 |-------|-------|--------|------|
 | OPEN | message other than `version`, `verack`, `feature`, `ping`, `pong`, `rendezvous`, `punch` on a dedicated Profile B coordination connection | disconnect (R-7.4) | CLOSED |
-| OPEN | `rendezvous` while one is outstanding on this connection | disconnect (R-4.4) | CLOSED |
+| OPEN | local `rendezvous` already outstanding | do not send another request until an answer is accepted or the original deadline expires (R-4.4) | OPEN |
 | OPEN | connector: response deadline measured from sending `rendezvous` expires without an accepted answering `punch`; advertiser, Profile B: R-12.2 deadline expires without handshake and `rendezvous` | close a connection opened only for coordination; an existing ordinary Profile A connection stays open | OPEN / CLOSED |
 | OPEN | Profile B: `punch` sent | A closes (R-12.5) | CLOSED |
 | OPEN | Profile A: `WINDOW_MS + GRACE_MS` after sending `punch` (coordinator), or accepting the answering `punch` (connector) | a connection opened only for coordination may close; an existing ordinary connection stays | OPEN / CLOSED |

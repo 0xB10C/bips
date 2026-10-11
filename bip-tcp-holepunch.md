@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-05-11: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497
-  Version: 0.3.0
+  Version: 0.3.1
   Requires: 155, 324, 434
 ```
 
@@ -828,6 +828,18 @@ semantic checks in R-2.1, R-5.1, and R-6.1 still apply before using them.
 
 ## Changelog
 
+* 0.3.1 (2026-10-12): amendments by Will Clark: two current reporters
+  required throughout; absolute session deadline, also for the Profile B
+  advertiser; a 4-tuple conflict does not establish the session;
+  `PUNCHPORT` by connection role; Profile A coordinates over ordinary P2P
+  connections, the message allowlist is Profile B only; the named
+  coordinator is exempt from the connector's diversity check; a rejected
+  answering `punch` keeps the request outstanding; repeated exchanges per
+  connection; announcement freshness checked on receipt, `time` preserved
+  on relay; onion identity lifetime bounded, `COORD_INBOUND_MAX` shared
+  with retiring services, `COORD_TIMEOUT_MS` from socket acceptance;
+  `punch` drained before closing; one handoff at a time; vectors are
+  wire-format checks only; retention does not block ordinary disconnects.
 * 0.3.0 (2026-10-11): initiator always takes the extra outbound slot (one
   classification rule); anti-redirection checked on `punch` receipt;
   single dissenting reports ignored; `rendezvous` reused on an

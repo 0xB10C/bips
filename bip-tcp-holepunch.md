@@ -384,7 +384,15 @@ belongs to the advertiser itself.
   `target_addr` and, in Profile A, `coord_addr` pass the connector's
   network-group diversity rules against its existing outbound peers, where a
   coordinator and every target announced through it count as one
-  group[^one-group].
+  group[^one-group]. In Profile A, exclude only an existing
+  outbound connection to the exact named coordinator endpoint
+  `coord_addr:coord_port`. Every other outbound peer remains in the
+  comparisons, including peers in the coordinator's network group. Both
+  `coord_addr` and `target_addr` MUST pass against the remaining peers.
+  The same exception applies when R-5.1 treats the sender of an unsolicited
+  initiator `punch` as its coordinator: exclude only that sender's exact
+  endpoint, and require the proposed peer to pass against all remaining
+  outbound peers.
 - R-7.2 A connector MUST NOT start more than one coordination attempt per
   `HP_ATTEMPT_INTERVAL` (5 min) and MUST drop a cache entry after one
   attempt, whatever its outcome.

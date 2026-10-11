@@ -2,7 +2,10 @@
 
 Each table lists (state, event, action, next state). Rule numbers refer
 to the main document. Events not listed for a state are ignored, except
-protocol errors, which close the connection they arrived on.
+protocol errors, which close the connection they arrived on. Connection
+retention prevents planned eviction and coordination cleanup; protocol
+violations, failed liveness checks, and stalled block/header downloads may
+still close a retained connection (R-5.14).
 
 ## Session (one per accepted `punch` or Profile B `rendezvous`)
 

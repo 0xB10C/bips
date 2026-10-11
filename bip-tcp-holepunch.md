@@ -332,6 +332,10 @@ acceptance of a validated `rendezvous` under R-12.5.
   it after writing `punch` to the socket as specified in R-12.5. R-1.1
   makes any node with outbound peers keep its mapping alive regardless.
 
+Connection-retention requirements in this specification prevent planned
+eviction or coordination cleanup. They do not prevent disconnection for
+protocol violations, failed liveness checks, or stalled block/header downloads.
+
 ### 6. Announcements: the `HOLEPUNCH` address type
 
 This document reserves BIP 155 network ID `0x08`, enumeration

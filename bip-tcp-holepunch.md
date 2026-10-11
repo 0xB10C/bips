@@ -816,8 +816,11 @@ tables are in [`bip-tcp-holepunch/`](bip-tcp-holepunch/):
 encodings with the expected rejection reason for the `feature` payload,
 `rendezvous`, `punch`, and `HOLEPUNCH` address elements for every
 (`coord_net`, `target_net`) combination. Implementations are expected to
-accept every valid vector, reproduce its encoding byte for byte, and reject
-every invalid vector.
+decode every valid vector, reproduce its encoding byte for byte, and reject
+every invalid vector. These are wire-format checks, not authorization to
+use a decoded endpoint. The vectors use documentation address ranges and
+include syntactically valid values such as port 0. Routability and other
+semantic checks in R-2.1, R-5.1, and R-6.1 still apply before using them.
 
 ## Changelog
 

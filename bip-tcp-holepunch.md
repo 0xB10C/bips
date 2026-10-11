@@ -110,8 +110,9 @@ socket without a proxy count ("reporting peers").
 
 **External address.** A node's address and port as seen from the
 Internet, for one address family: the reported address that at least two
-reporting peers in distinct network groups agree on. It stays valid while
-at least one of the peers that reported it is still connected.
+currently connected reporting peers in distinct network groups agree on.
+It remains valid only while that agreement holds and no second agreeing
+set reports a different endpoint (R-2.2, R-2.3).
 
 **Network group.** The grouping an implementation uses for outbound peer
 diversity (for example /16 for IPv4, /32 for IPv6, or autonomous systems).
@@ -156,8 +157,8 @@ pair (local punch port, peer endpoint).
   not globally routable, and reports with port 0.
 - R-2.2 A node has an external address for an address family when at least two
   current reporting peers in distinct network groups report the same endpoint.
-  A report made by a single reporting peer only is ignored, so one lying peer
-  can neither create nor destroy an external address.
+  Reports from only one network group do not qualify an endpoint. A lone
+  dissenting report cannot replace or invalidate an agreeing set.
 - R-2.3 If two such agreeing sets report different endpoints for the same
   family, the node's mapping is not endpoint-independent, or it has several
   external addresses. It then has no external address and MUST NOT announce or

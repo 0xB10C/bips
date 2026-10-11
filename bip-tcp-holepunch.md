@@ -393,12 +393,19 @@ belongs to the advertiser itself.
   punch-port connection), and otherwise opens one from a punch-port socket
   with `PUNCHPORT` set and waits for the feature exchange first. Profile
   B: it opens a connection over Tor (or I2P) to `coord_addr` with stream
-  isolation. In both cases it gives up if no `punch` arrives within
-  `COORD_TIMEOUT_MS` (10000 ms) and then closes a connection it opened
-  only for this purpose.
-- R-7.4 A connection opened only for coordination carries only `version`,
-  `verack`, `feature`, `ping`, `pong`, `rendezvous`, and `punch`; any
-  other message on it MUST result in disconnect.
+  isolation. In both cases the response deadline is `COORD_TIMEOUT_MS`
+  (10000 ms) after sending `rendezvous`. If no accepted answering `punch`
+  arrives by that deadline, the connector gives up and closes a connection
+  it opened only for coordination. After accepting an answering `punch` in
+  Profile A, it MUST keep such a connection open until
+  `WINDOW_MS + GRACE_MS` after receipt of that `punch`, even if the session
+  completes earlier. An existing ordinary connection is not closed merely
+  because coordination ends.
+- R-7.4 A connection to a dedicated Profile B coordination endpoint carries
+  only `version`, `verack`, `feature`, `ping`, `pong`, `rendezvous`, and
+  `punch`; receiving any other message on it MUST result in disconnect.
+  Profile A uses ordinary P2P connections and permits ordinary P2P messages,
+  including on connections opened only for coordination.
 
 ### 8. Classification and slots
 

@@ -61,7 +61,7 @@ Terminal: CONNECTED, FAILED (I-6).
 | WAITING | `punch(initiator, peer)` with `peer == target` and R-5.1 passes | start Session(initiator) | IN_SESSION |
 | WAITING | `punch` with `peer != target` or role responder | ignore (R-5.1); keep waiting | WAITING |
 | WAITING | timeout or disconnect | close a connection opened only for coordination | IDLE |
-| IN_SESSION | session CONNECTED or FAILED | close a connection opened only for coordination | IDLE |
+| IN_SESSION | session CONNECTED or FAILED | Profile A: retain a connection opened only for coordination until the receipt-based liveness deadline in R-7.3; an existing ordinary connection stays open | IDLE |
 
 ## Coordinator (Profile A)
 
@@ -86,8 +86,8 @@ inbound on A's coordination onion service.
 
 | State | Event | Action | Next |
 |-------|-------|--------|------|
-| OPEN | message other than `version`, `verack`, `feature`, `ping`, `pong`, `rendezvous`, `punch` on a connection opened only for coordination | disconnect (R-7.4) | CLOSED |
+| OPEN | message other than `version`, `verack`, `feature`, `ping`, `pong`, `rendezvous`, `punch` on a dedicated Profile B coordination connection | disconnect (R-7.4) | CLOSED |
 | OPEN | `rendezvous` while one is outstanding on this connection | disconnect (R-4.4) | CLOSED |
-| OPEN | `COORD_TIMEOUT_MS` without `punch` (B) / without handshake and `rendezvous` (A, Profile B) | disconnect | CLOSED |
+| OPEN | connector: response deadline measured from sending `rendezvous` expires without an accepted answering `punch`; advertiser, Profile B: R-12.2 deadline expires without handshake and `rendezvous` | close a connection opened only for coordination; an existing ordinary Profile A connection stays open | OPEN / CLOSED |
 | OPEN | Profile B: `punch` sent | A closes (R-12.5) | CLOSED |
-| OPEN | Profile A: `WINDOW_MS + GRACE_MS` after `punch` | coordinator may close a coordination-only connection; an ordinary connection stays | OPEN / CLOSED |
+| OPEN | Profile A: `WINDOW_MS + GRACE_MS` after sending `punch` (coordinator), or accepting the answering `punch` (connector) | a connection opened only for coordination may close; an existing ordinary connection stays | OPEN / CLOSED |

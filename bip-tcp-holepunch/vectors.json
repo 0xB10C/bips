@@ -109,7 +109,7 @@
   },
   {
    "kind": "punch",
-   "description": "PI with IPv4 peer",
+   "description": "initiator with IPv4 peer",
    "hex": "010104cb007101208f",
    "decoded": {
     "role": 1,
@@ -122,7 +122,7 @@
   },
   {
    "kind": "punch",
-   "description": "PR with IPv4 peer",
+   "description": "responder with IPv4 peer",
    "hex": "000104c6336402c3cb",
    "decoded": {
     "role": 0,
@@ -135,7 +135,7 @@
   },
   {
    "kind": "punch",
-   "description": "PI with IPv6 peer",
+   "description": "initiator with IPv6 peer",
    "hex": "01021020010db8000000000000000000000001208f",
    "decoded": {
     "role": 1,

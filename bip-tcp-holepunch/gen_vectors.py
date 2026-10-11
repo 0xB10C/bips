@@ -254,9 +254,9 @@ def build():
     add_invalid("rendezvous", "non-minimal CompactSize addr_len", (ser_u8(NET_IPV4) + b"\xfd\x04\x00" + bytes.fromhex(IPV4_A["addr"]) + ser_u16be(8335) + ser_endpoint(IPV4_B)).hex(), "non-minimal CompactSize")
 
     # punch
-    add_valid("punch", "PI with IPv4 peer", {"role": 1, "peer": IPV4_A})
-    add_valid("punch", "PR with IPv4 peer", {"role": 0, "peer": IPV4_B})
-    add_valid("punch", "PI with IPv6 peer", {"role": 1, "peer": IPV6_A})
+    add_valid("punch", "initiator with IPv4 peer", {"role": 1, "peer": IPV4_A})
+    add_valid("punch", "responder with IPv4 peer", {"role": 0, "peer": IPV4_B})
+    add_valid("punch", "initiator with IPv6 peer", {"role": 1, "peer": IPV6_A})
     add_invalid("punch", "role 2", (ser_u8(2) + ser_endpoint(IPV4_A)).hex(), "R-4.2 unknown role")
     add_invalid("punch", "peer with CJDNS net", (ser_u8(1) + ser_u8(NET_CJDNS) + ser_cs(16) + bytes.fromhex(CJDNS) + ser_u16be(8335)).hex(), "R-4.2 endpoint net")
     add_invalid("punch", "trailing byte", (ser_punch({"role": 1, "peer": IPV4_A}) + b"\x00").hex(), "R-4.1 trailing bytes")

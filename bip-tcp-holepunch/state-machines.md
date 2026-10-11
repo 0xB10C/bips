@@ -65,13 +65,13 @@ Terminal: CONNECTED, FAILED (I-6).
 
 ## Coordinator (Profile A)
 
-Per connected peer with `PUNCHPORT`: remember the observed endpoint, the
+Per inbound peer with `PUNCHPORT`: remember the observed endpoint, the
 caps, whether `rendezvous`/`punch` was already used on the connection, and the
 current session partner if any.
 
 | State | Event | Action | Next |
 |-------|-------|--------|------|
-| IDLE | `rendezvous(target, requester)` from B | find accepted A with `ADVERTISED` + `PUNCHPORT` and observed == target; check B set `PUNCHPORT` and requester == obs(B), neither A nor B within `WINDOW_MS + GRACE_MS` of a previous `punch`, A/B addresses differ, family match, per-target rate (R-11.2) | |
+| IDLE | `rendezvous(target, requester)` from B | find inbound A with `ADVERTISED` + `PUNCHPORT` and observed == target; check B set `PUNCHPORT` and requester == obs(B), neither A nor B within `WINDOW_MS + GRACE_MS` of a previous `punch`, A/B addresses differ, family match, per-target rate (R-11.2) | |
 | IDLE | check failed | do nothing (B times out); optionally close B | IDLE |
 | IDLE | check passed | send `punch(responder, obs(B))` to A then `punch(initiator, obs(A))` to B; mark both in session; start liveness timer `WINDOW_MS + GRACE_MS` | PAIRED |
 | IDLE (pool) | two `POOL_OK` + `PUNCHPORT` peers available with different addresses, not paired within `PER_IP_INTERVAL` | roles by lexicographic endpoint order (R-11.8); send both `punch`; start liveness timer | PAIRED |

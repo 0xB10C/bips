@@ -105,8 +105,8 @@ ordinary inbound connections.
 
 **Reported address.** The address and port a peer puts in the `addr_recv`
 field of its `version` message: the source of the connection as that peer
-sees it[^addr-recv]. Only reports from peers reached through a punch-port
-socket without a proxy count ("reporting peers").
+sees it[^addr-recv]. Only reports on outbound connections using a
+punch-port socket without a proxy count ("reporting peers").
 
 **External address.** A node's address and port as seen from the
 Internet, for one address family: the reported address that at least two
@@ -190,11 +190,13 @@ acceptance of a validated `rendezvous` under R-12.5.
   | 1   | `ADVERTISED`  | the sender is, or will be, advertised through the receiver and accepts `punch` as responder for sessions requested by others |
   | 2   | `POOL_OK`     | the sender may be paired with another pool member by the receiver |
   | 3   | `HANDOFF_OK`  | the sender accepts a handoff instead of eviction on this connection |
-  | 4   | `PUNCHPORT`   | this connection is from the sender's punch port; the endpoint the receiver observes is the sender's external address |
+  | 4   | `PUNCHPORT`   | this outbound connection uses the sender's punch port without a proxy |
 
-  Unknown bits MUST be ignored. `PUNCHPORT` MUST only be set on a
-  connection the sender opened from a punch-port socket without a proxy,
-  and a receiver MUST only act on it for connections it accepted. A node
+  Unknown bits MUST be ignored. `PUNCHPORT` MUST only be set on an
+  outbound connection using a punch-port socket without a proxy.
+  A receiver MUST only act on it for inbound connections. On punched
+  connections, direction is determined by R-8.1, independently of whether
+  the socket was obtained through `connect()` or `accept()`. A node
   MUST NOT send `rendezvous` or `punch` on a connection unless both sides
   sent the feature with `version` 0. Receiving either message otherwise
   MUST result in disconnect.
@@ -452,11 +454,11 @@ Any peer that sets `COORDINATOR` in its feature can act as coordinator.
 Advertisers use coordinators among their existing outbound peers; they do
 not need a separate discovery mechanism.
 
-- R-11.1 A coordinator keeps, for each accepted connection with
+- R-11.1 A coordinator keeps, for each inbound connection with
   `PUNCHPORT` set, the endpoint it observed. Only observed endpoints go
   into `punch`, never the `requester` field of `rendezvous`.
-- R-11.2 On `rendezvous` from a peer B, the coordinator looks for an
-  accepted connection A with `ADVERTISED` and `PUNCHPORT` whose observed
+- R-11.2 On `rendezvous` from an inbound peer B, the coordinator looks for an
+  inbound connection A with `ADVERTISED` and `PUNCHPORT` whose observed
   endpoint equals `target`. It MUST NOT send `punch`, and MAY close B's
   connection, if there is none; if B did not set `PUNCHPORT` or its
   `requester` differs from B's observed endpoint (B's mapping is not

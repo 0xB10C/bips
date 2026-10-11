@@ -126,8 +126,10 @@ the sense of BIP 324: the initiator sends the first bytes. The role is
 assigned by `punch` and never derived from whether the operating system
 delivered the socket via `connect()` or `accept()`.
 
-**Session.** The local state created by a `punch`, identified by the
-pair (local punch port, peer endpoint).
+**Session.** The local state identified by the pair (local punch port,
+peer endpoint). Its start time is the receipt of a `punch` that passes
+R-5.1. For a Profile B advertiser, which receives no `punch`, it is the
+acceptance of a validated `rendezvous` under R-12.5.
 
 ## Specification
 
@@ -264,7 +266,10 @@ pair (local punch port, peer endpoint).
 
 - R-5.4 On accepting a `punch`, the node immediately opens a punch-port
   socket and calls `connect()` on `peer`, with a deadline at the end of the
-  window (`WINDOW_MS`, 15000 ms after the `punch` was received).
+  window (`WINDOW_MS`, 15000 ms after session start). At this
+  deadline the node MUST close any pending attempt and MUST NOT start
+  further attempts. It continues to accept matching sockets from the
+  punch-port listener until the session deadline in R-5.11.
 - R-5.5 If an attempt fails before the deadline (connection reset,
   unreachable, or any immediate error), the node MUST close the socket,
   wait `RETRY_MS` (1000 ms), and open a new attempt, until the deadline.
@@ -295,17 +300,21 @@ pair (local punch port, peer endpoint).
 #### Termination
 
 - R-5.11 A session ends when its connection has completed `verack`
-  (success) or when the window plus `GRACE_MS` (2000 ms) has elapsed
-  without that (failure). On failure every socket of the session MUST be
-  closed and the reserved slot released.
+  (success) or at the absolute deadline `WINDOW_MS + GRACE_MS`
+  (17000 ms after session start) without that (failure).
+  Handshake progress MUST NOT extend this deadline. On failure every
+  socket of the session MUST be closed and the reserved slot released.
 - R-5.12 No outcome is reported over the protocol. A coordinator
   learns of success only indirectly; an advertiser that still has free
   slots simply remains available.
 
 #### Timing and mapping liveness
 
-- R-5.13 Both parties start on receipt of `punch`. A coordinator sends
-  the two `punch` messages back to back, the one for the responder first.
+- R-5.13 In Profile A, both parties start on receipt of `punch`. The
+  coordinator sends the two `punch` messages back to back, the one for the
+  responder first. In Profile B, the advertiser starts on acceptance of
+  the validated `rendezvous`, and the connector on receipt of `punch`.
+  Their deadlines are measured from their respective session start times.
 - R-5.14 In Profile A the coordinator MUST keep both connections open for
   `WINDOW_MS + GRACE_MS` after sending `punch`: they are punch-port
   connections that keep the parties' NAT mappings alive. In Profile B the

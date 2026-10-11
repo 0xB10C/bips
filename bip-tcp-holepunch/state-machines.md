@@ -6,7 +6,9 @@ protocol errors, which close the connection they arrived on.
 
 ## Session (one per accepted `punch`, both parties)
 
-Key: (local punch port, `peer`). Window = `WINDOW_MS` from receipt.
+Key: (local punch port, `peer`). Window = `WINDOW_MS` from session start.
+For a recipient of `punch`, this is its receipt time. A Profile B advertiser
+starts on acceptance of a validated `rendezvous` (R-12.5).
 
 | State | Event | Action | Next |
 |-------|-------|--------|------|
@@ -19,11 +21,10 @@ Key: (local punch port, `peer`). Window = `WINDOW_MS` from receipt.
 | PUNCHING / WAITING_RETRY | listener accepts socket with remote endpoint == `peer` | close pending attempt; session connection = accepted socket; initiator: send BIP 324 key; responder: wait | ESTABLISHED |
 | PUNCHING / WAITING_RETRY | window timer fires | close pending attempt; start `GRACE_MS` timer | GRACE |
 | GRACE | listener accepts socket with remote endpoint == `peer` | as above | ESTABLISHED |
-| GRACE | grace timer fires | release slot | FAILED |
 | ESTABLISHED (responder) | BIP 324 bytes arrive | complete handshake as responder | HANDSHAKE |
 | ESTABLISHED (responder) | v1 prefix arrives | close connection; release slot | FAILED |
 | ESTABLISHED (initiator) | BIP 324 handshake completes | send `version` | HANDSHAKE |
-| ESTABLISHED | window + grace elapsed without handshake progress | close; release slot | FAILED |
+| any non-terminal | `WINDOW_MS + GRACE_MS` after session start, without `verack` | close all session sockets; release slot | FAILED |
 | HANDSHAKE | `verack` received | account per R-8.1 (initiator: hole-punch outbound, responder: inbound) | CONNECTED |
 | HANDSHAKE | disconnect before `verack` | release slot | FAILED |
 | any non-terminal | shutdown or punch port closed | close all; release slot | FAILED |

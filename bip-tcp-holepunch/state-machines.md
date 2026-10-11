@@ -77,7 +77,7 @@ cooldown and rate limits expire.
 | IDLE | check failed | do nothing (B times out); optionally close B | IDLE |
 | IDLE | check passed | send `punch(responder, obs(B))` to A then `punch(initiator, obs(A))` to B; record each send time; mark both in session; start liveness timer `WINDOW_MS + GRACE_MS` | PAIRED |
 | IDLE (pool) | two `POOL_OK` + `PUNCHPORT` peers available with different addresses, not paired within `PER_IP_INTERVAL` | roles by lexicographic endpoint order (R-11.8); send both `punch`; record each send time; start liveness timer | PAIRED |
-| IDLE (handoff) | inbound full, eviction rules select X; another inbound Y exists; both `HANDOFF_OK` + `PUNCHPORT`, past `verack`, distinct addresses, no elevated permissions | roles per R-11.8; send both `punch`; record each send time; start liveness timer; defer eviction of X (capacity exceeded by one) | PAIRED |
+| IDLE (handoff) | no handoff pending; inbound full, eviction rules select X; another inbound Y exists; both `HANDOFF_OK` + `PUNCHPORT`, past `verack`, distinct addresses, no elevated permissions | roles per R-11.8; send both `punch`; record each send time; start liveness timer; defer eviction of X (capacity exceeded by one) | PAIRED |
 | PAIRED | liveness timer fires | clear session marks; (handoff) disconnect X; connections may be closed | IDLE |
 | any | peer disconnects | forget its observation; if in session, nothing else (the other party times out) | IDLE |
 

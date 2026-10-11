@@ -538,8 +538,10 @@ not need a separate discovery mechanism.
   `verack`, do not share an address, and have no elevated permissions: it
   sends `punch` to both with roles per R-11.8, keeps both connected for
   `WINDOW_MS + GRACE_MS`, and then disconnects X. The coordinator exceeds
-  its inbound limit by one connection for that time. Both parties account
-  the connection per R-8.1.
+  its inbound limit by at most one connection for that time. A coordinator
+  MUST NOT have more than one handoff pending at a time; further arrivals
+  follow its ordinary admission and eviction rules, subject to R-11.4.
+  Both parties account the connection per R-8.1.
 
 #### Trust considerations for coordinators
 

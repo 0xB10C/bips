@@ -574,9 +574,10 @@ acts as its own coordinator. I2P endpoints are permitted through
   announced again.
 - R-12.2 Connections accepted on the coordination endpoint are
   coordination-only connections (R-7.4). The advertiser MUST NOT hold more
-  than `COORD_INBOUND_MAX` (8) of them and MUST close one that has not
-  completed `verack`, the feature exchange, and a `rendezvous` within
-  `COORD_TIMEOUT_MS`.
+  than `COORD_INBOUND_MAX` (8) of them in total across current and
+  retiring endpoints. It MUST close one that has not completed `verack`,
+  the feature exchange, and a `rendezvous` within `COORD_TIMEOUT_MS` of
+  socket acceptance. This deadline includes transport negotiation.
 - R-12.3 The advertiser announces `coord_*` set to the onion service and the
   default port and `target_*` set to its external address, subject to R-6.4
   and R-6.5.

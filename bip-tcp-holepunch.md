@@ -95,9 +95,10 @@ without `time` and `services`:
 | `uint16_be`   | `port`     | port, big-endian as in BIP 155 |
 
 **Punch port.** A local TCP port per address family that a participating
-node reserves for this protocol. The default is the network's default P2P
-port plus two (8335 on mainnet). It is independent of whether the node
-listens for ordinary inbound connections.
+node reserves for this protocol. The default is the node's own P2P port
+plus two (8335 for a mainnet node on the default port); implementations
+make it configurable. It is independent of whether the node listens for
+ordinary inbound connections.
 
 **Punch-port socket.** A TCP socket bound to the punch port with
 `SO_REUSEADDR` and `SO_REUSEPORT` set before binding.
@@ -136,7 +137,7 @@ pair (local punch port, peer endpoint).
   punch-port socket of the peer's address family[^bind-all]. If the
   operating system refuses the connection because the 4-tuple is still in
   use (typically `TIME_WAIT` after a recent connection to the same peer),
-  the node MAY use an ephemeral port instead; such a connection is not an
+  the node MAY use an ephemeral port instead; such a connection is not a
   reporting peer and MUST NOT set `PUNCHPORT`.
 - R-1.2 A participating node MUST listen on each punch port. Connections
   accepted there are punched connections; the listener MUST NOT be used
@@ -164,6 +165,10 @@ pair (local punch port, peer endpoint).
   again.
 - R-2.4 An external address that stops being valid MUST NOT be used in new
   announcements or requests. Sessions already started continue.
+- R-2.5 On test networks such as regtest, where all nodes share one host,
+  an implementation MAY waive the requirement that addresses be globally
+  routable (R-2.1, R-5.1, R-6.1) and MAY treat each peer as its own
+  network group, so that the procedure can be exercised end to end.
 
 ### 3. Signalling
 
@@ -187,9 +192,9 @@ pair (local punch port, peer endpoint).
   Unknown bits MUST be ignored. `PUNCHPORT` MUST only be set on a
   connection the sender opened from a punch-port socket without a proxy,
   and a receiver MUST only act on it for connections it accepted. A node
-  MUST NOT send `rendezvous` or `punch`
-  on a connection unless both sides sent the feature with `version` 0.
-  Receiving either message otherwise MUST result in disconnect.
+  MUST NOT send `rendezvous` or `punch` on a connection unless both sides
+  sent the feature with `version` 0. Receiving either message otherwise
+  MUST result in disconnect.
 - R-3.2 Future versions of this protocol are negotiated through the
   `version` field of the feature data; nodes MUST NOT send `rendezvous` or
   `punch` to a peer whose feature `version` differs from their own.
@@ -237,18 +242,18 @@ pair (local punch port, peer endpoint).
     family;
   - the `punch` answers a `rendezvous` (R-4.4) but `role` is not initiator or
     `peer` does not equal that `rendezvous`'s `target`; this is the
-    anti-redirection check, a coordinator cannot steer the
-    connector anywhere but to the announced target;
-  - the `punch` is unsolicited and the node did not set, on this
-    connection, `ADVERTISED` (for role responder) or `POOL_OK` or `HANDOFF_OK`
-    (for either role), or the role is initiator and `peer` fails the diversity
-    rule of R-7.1 with the sender counted as its coordinator;
+    anti-redirection check: a coordinator cannot steer the connector
+    anywhere but to the announced target;
+  - the `punch` is unsolicited and the node did not set, on this connection,
+    `ADVERTISED` (for role responder) or `POOL_OK` or `HANDOFF_OK` (for either
+    role), or the role is initiator and `peer` fails the diversity rule of
+    R-7.1 with the sender counted as its coordinator;
   - a session with the same (punch port, `peer`) exists, the node has
     `MAX_ACTIVE_SESSIONS` (2) sessions, started `SESSIONS_PER_MIN` (4)
     sessions in the last minute, or started one to the same address within
     `PER_IP_INTERVAL` (10 min);
-  - the role is responder and no inbound slot is free, or the role is initiator and the
-    hole-punch outbound slot is taken (section 8).
+  - the role is responder and no inbound slot is free, or the role is
+    initiator and the hole-punch outbound slot is taken (section 8).
 - R-5.2 Endpoints whose port the implementation treats as a "bad port" for
   outbound connections SHOULD be ignored.
 - R-5.3 A responder MUST reserve one inbound slot for the session until it
@@ -263,10 +268,10 @@ pair (local punch port, peer endpoint).
   unreachable, or any immediate error), the node MUST close the socket,
   wait `RETRY_MS` (1000 ms), and open a new attempt, until the deadline.
   The pending `connect()` itself retransmits SYNs; the node MUST NOT run
-  more than one attempt at a time per session. An attempt that fails
-  because the 4-tuple is already in use means the listener has accepted
-  the peer's connection (R-5.7); it is not retried.
-- R-5.6 Reserved.
+  more than one attempt at a time per session.
+- R-5.6 An attempt that fails because the 4-tuple is already in use means
+  the listener has accepted the peer's connection (R-5.7); it is not
+  retried.
 
 #### Establishment
 
@@ -276,15 +281,15 @@ pair (local punch port, peer endpoint).
   parties use fixed ports, at most one TCP connection can exist per
   session. A socket accepted on the punch-port listener that matches no
   session MUST be closed.
-- R-5.8 On establishment the node stops the attempts. The initiator immediately
-  sends its BIP 324 initiator bytes. The responder sends nothing until BIP 324
-  bytes arrive.
+- R-5.8 On establishment the node stops the attempts. The initiator
+  immediately sends its BIP 324 initiator bytes. The responder sends nothing
+  until BIP 324 bytes arrive.
 - R-5.9 The punched connection MUST use the BIP 324 v2 transport. A v1
   prefix on the connection is an error; the connection MUST be closed and
   no v1 fallback attempted.
-- R-5.10 The ordinary `version`/`verack` handshake follows on the
-  encrypted connection; the initiator sends `version` first. The session is
-  complete when the node has received `verack`.
+- R-5.10 The ordinary `version`/`verack` handshake follows on the encrypted
+  connection; the initiator sends `version` first. The session is complete
+  when the node has received `verack`.
 
 #### Termination
 
@@ -320,11 +325,11 @@ This document reserves BIP 155 network ID `0x08`, enumeration
 | `uint8`     | `target_net`  | `IPV4` or `IPV6` |
 | `uint8[]`   | `target_addr` | the advertiser's external address, 4 or 16 bytes |
 
-The element's `port` field is the port of the advertiser's external address, `services`
-the advertiser's services (MUST include `NODE_P2P_V2`), and `time` the
-announcement time. Valid `addr` lengths are 12, 24, 36, 40, and 52 bytes;
-the field is parsed by network IDs, and length 24 occurs for both
-(`IPV6`, `IPV4`) and (`IPV4`, `IPV6`).
+The element's `port` field is the port of the advertiser's external address,
+`services` the advertiser's services (MUST include `NODE_P2P_V2`), and `time`
+the announcement time. Valid `addr` lengths are 12, 24, 36, 40, and 52 bytes;
+the field is parsed by network IDs, and length 24 occurs for both (`IPV6`,
+`IPV4`) and (`IPV4`, `IPV6`).
 
 A clearnet `coord_net` means Profile A: the coordinator is a third node.
 An onion or I2P `coord_net` means Profile B: the coordinating endpoint
@@ -349,7 +354,8 @@ belongs to the advertiser itself.
   not reached through a proxy, so the coordination identity never appears
   on the privacy network itself.
 - R-6.5 **Self-announcement.** An advertiser announces only while it has
-  at least one free inbound slot, a valid external address (R-2.2), and, in
+  at least one free inbound slot, counting slots reserved by sessions
+  (R-5.3) as used, a valid external address (R-2.2), and, in
   Profile A, an open connection to the named coordinator with
   `ADVERTISED` and `PUNCHPORT` set; at most once per `ANNOUNCE_INTERVAL`
   (10 min) per peer. An advertiser announces one element at a time; in
@@ -359,12 +365,12 @@ belongs to the advertiser itself.
 
 ### 7. Connector behaviour
 
-- R-7.1 A connector chooses targets only from its cache. An entry is
-  eligible if the connector can reach `coord_net`, has an external address in
+- R-7.1 A connector chooses targets only from its cache. An entry is eligible
+  if the connector can reach `coord_net`, has an external address in
   `target_net`'s family, has its hole-punch outbound slot free, and if
   `target_addr` and, in Profile A, `coord_addr` pass the connector's
-  address-group diversity rules against its existing outbound peers,
-  where a coordinator and every target announced through it count as one
+  network-group diversity rules against its existing outbound peers, where a
+  coordinator and every target announced through it count as one
   group[^one-group].
 - R-7.2 A connector MUST NOT start more than one coordination attempt per
   `HP_ATTEMPT_INTERVAL` (5 min) and MUST drop a cache entry after one
@@ -384,15 +390,14 @@ belongs to the advertiser itself.
 ### 8. Classification and slots
 
 - R-8.1 The initiator accounts the punched connection as a **hole-punch
-  outbound**, one slot in addition to its ordinary automatic outbound
-  slots (`HP_OUTBOUND_MAX` = 1). A node MUST NOT use it as an anchor and
-  MUST NOT count it when deciding whether its outbound connectivity is
-  diverse enough to record address manager failures[^extra-slot]. The responder
-  accounts the connection as inbound. This holds for every session,
-  whether requested by the connector or created by a coordinator for a
-  pool or handoff pairing: the initiator is the party that acts as BIP 324
-  initiator and sends `version` first, exactly as for any outbound
-  connection[^initiator-slot].
+  outbound**, one slot in addition to its ordinary automatic outbound slots
+  (`HP_OUTBOUND_MAX` = 1). A node MUST NOT use it as an anchor and MUST NOT
+  count it when deciding whether its outbound connectivity is diverse enough
+  to record address manager failures[^extra-slot]. The responder accounts the
+  connection as inbound. This holds for every session, whether requested by
+  the connector or created by a coordinator for a pool or handoff pairing: the
+  initiator is the party that acts as BIP 324 initiator and sends `version`
+  first, exactly as for any outbound connection[^initiator-slot].
 
 ### 9. Invariants
 
@@ -415,7 +420,7 @@ belongs to the advertiser itself.
 
 | Name | Default | Used in |
 |------|---------|---------|
-| punch port | default P2P port + 2 | section 1 |
+| punch port | own P2P port + 2 | Terminology |
 | `WINDOW_MS` | 15000 | R-5.4 |
 | `RETRY_MS` | 1000 | R-5.5 |
 | `GRACE_MS` | 2000 | R-5.11 |
@@ -464,14 +469,14 @@ not need a separate discovery mechanism.
  ... A announces HOLEPUNCH(coord=C, target=A's address) on the network ...
                                                            cache entry chosen
                                <-- existing or new connection from punch port --
-                               <-- rendezvous(target=A's addr, requester=B's addr) --
+                               <-- rendezvous(target=A, requester=B) --
  <-- punch(responder, peer=B) --  -- punch(initiator, peer=A) -->
                ====== simultaneous open A:punch <-> B:punch ======
                <===== BIP 324 (B initiates), version/verack =====>
 ```
 
-- R-11.5 A announces `coord_*` set to the address it used to connect to C
-  and `target_*` set to its external address; it MUST keep the connection to C
+- R-11.5 A announces `coord_*` set to the address it used to connect to C and
+  `target_*` set to its external address; it MUST keep the connection to C
   open while the announcement is valid (R-6.5).
 - R-11.6 B checks `peer` against `target` (R-5.1) and accounts the
   connection per R-8.1.
@@ -483,8 +488,8 @@ not need a separate discovery mechanism.
   differ, preferring different network groups, at most once per
   `PER_IP_INTERVAL` for the same pair.
 - R-11.8 The initiator is the member whose observed endpoint, serialized as an
-  endpoint, is lexicographically smaller. Both members account the
-  connection per R-8.1.
+  endpoint, is lexicographically smaller. Both members account the connection
+  per R-8.1.
 
 #### A.3 Handoff instead of eviction (OPTIONAL)
 
@@ -499,15 +504,15 @@ not need a separate discovery mechanism.
 
 #### Trust considerations for coordinators
 
-The coordinator learns that A and B were paired and when, and anyone who
-sees A's announcement learns that A is connected to C. It can refuse to
-pair and can send a wrong `peer`: a connector rejects any `peer` other
-than the announced target before sending a SYN (R-5.1), and an advertiser
-or pool member spends at most one session's attempts (R-5.5). It cannot
-read or modify the punched connection. In every session the initiator holds one
-extra outbound slot that is excluded from anchors and diversity accounting
-(R-8.1), and the peer must pass diversity with the coordinator and its
-targets as one group (R-7.1, R-5.1).
+The coordinator learns that A and B were paired and when, and anyone who sees
+A's announcement learns that A is connected to C. It can refuse to pair and
+can send a wrong `peer`: a connector rejects any `peer` other than the
+announced target before sending a SYN (R-5.1), and an advertiser or pool
+member spends at most one session's attempts (R-5.5). It cannot read or modify
+the punched connection. In every session the initiator holds one extra
+outbound slot that is excluded from anchors and diversity accounting (R-8.1),
+and the peer must pass diversity with the coordinator and its targets as one
+group (R-7.1, R-5.1).
 
 ### 12. Profile B: self-coordinated over Tor
 
@@ -530,8 +535,8 @@ acts as its own coordinator. I2P endpoints are permitted through
   than `COORD_INBOUND_MAX` (8) of them and MUST close one that has not
   completed `verack`, the feature exchange, and a `rendezvous` within
   `COORD_TIMEOUT_MS`.
-- R-12.3 The advertiser announces `coord_*` set to the onion service and
-  the default port and `target_*` set to its external address, subject to R-6.4
+- R-12.3 The advertiser announces `coord_*` set to the onion service and the
+  default port and `target_*` set to its external address, subject to R-6.4
   and R-6.5.
 
 ```
@@ -546,13 +551,13 @@ acts as its own coordinator. I2P endpoints are permitted through
                <===== BIP 324 (B initiates), version/verack =====>
 ```
 
-- R-12.4 On `rendezvous`, A checks that `target` equals its current
-  external address (R-2.2) and that `requester`, taken as `peer` with role responder,
+- R-12.4 On `rendezvous`, A checks that `target` equals its current external
+  address (R-2.2) and that `requester`, taken as `peer` with role responder,
   passes R-5.1. If any check fails A MUST NOT answer and MAY close the
   connection.
 - R-12.5 Otherwise A sends `punch(role=initiator, peer=target)`, closes the
-  coordination connection, and starts its own session as responder with
-  `peer = requester` (R-5.4). A MUST always assign initiator to the connector.
+  coordination connection, and starts its own session as responder with `peer
+  = requester` (R-5.4). A MUST always assign initiator to the connector.
 - R-12.6 B checks `peer` against `target` (R-5.1) and accounts the
   connection per R-8.1.
 
@@ -588,18 +593,17 @@ the address the sender observed for the receiver; this BIP only makes the
 port meaningful by fixing the source port of outbound connections. Any
 peer, upgraded or not, serves as a reporting peer.
 
-[^bind-all]: Binding every outbound connection to the punch port turns
-every peer a reporting peer, keeps the NAT mapping alive as long as the
-node has any outbound connection, and removes any need for dedicated probe
-connections. A peer learns that the node uses a fixed source port,
-which reveals nothing beyond the node's address that it already sees. Two
-connections to the same remote endpoint from one punch port are
-impossible: R-1.1's fallback covers reconnecting to a peer whose 4-tuple
-is still in `TIME_WAIT`, and R-7.3 reuses an existing connection to a
-coordinator rather than opening a second one. The listener and the
-connecting sockets coexist on one port with `SO_REUSEPORT` on Linux, the
-BSDs, and macOS; Windows has no equivalent and is not covered by this
-draft.
+[^bind-all]: Binding every outbound connection to the punch port makes every
+peer a reporting peer, keeps the NAT mapping alive as long as the node has any
+outbound connection, and removes any need for dedicated probe connections. A
+peer learns that the node uses a fixed source port, which reveals nothing
+beyond the node's address that it already sees. Two connections to the same
+remote endpoint from one punch port are impossible: R-1.1's fallback covers
+reconnecting to a peer whose 4-tuple is still in `TIME_WAIT`, and R-7.3 reuses
+an existing connection to a coordinator rather than opening a second one. The
+listener and the connecting sockets coexist on one port with `SO_REUSEPORT` on
+Linux, the BSDs, and macOS; Windows has no equivalent and is not covered by
+this draft.
 
 [^one-group]: Proposed in the Delving thread: if the connector picks a
 coordinator and then any target announced through it, the coordinator's
@@ -613,12 +617,12 @@ peers; a dedicated extra slot bounds the influence to one connection.
 
 [^initiator-slot]: An earlier draft accounted pool and handoff sessions as
 inbound on both sides, with the initiator role only choosing who starts the
-handshake. That required an "inbound" connection to act as transport
-initiator and send `version` first, which implementations tie to the
-outbound path, and a second classification rule. Letting the initiator always
-take the extra slot gives one rule for every session; the slot is already
-isolated from anchors and diversity accounting, and the coordinator-chosen
-peer must pass the same diversity check as an announced target.
+handshake. That required an "inbound" connection to act as transport initiator
+and send `version` first, which implementations tie to the outbound path, and
+a second classification rule. Letting the initiator always take the extra slot
+gives one rule for every session; the slot is already isolated from anchors
+and diversity accounting, and the coordinator-chosen peer must pass the same
+diversity check as an announced target.
 
 [^rotation]: A long-lived coordination onion address would allow anyone to
 correlate successive clearnet addresses of the same node. Tor onion
@@ -701,13 +705,13 @@ connector sends nothing unless `peer` equals the target it chose itself.
 In Profile B the requester is anonymous, so these global limits are the
 only bound.
 
-**Sybil and eclipse through coordinators.** Every session gives the initiator one
-extra outbound slot that is excluded from anchors and diversity
-accounting. The peer must pass diversity rules with the coordinator and
-its targets as one group, and a connector accepts only the announced
-target. An attacker flooding announcements or acting as coordinator can
-obtain at most that one slot from a victim, at the cost of one
-coordination attempt per five minutes per victim.
+**Sybil and eclipse through coordinators.** Every session gives the initiator
+one extra outbound slot that is excluded from anchors and diversity
+accounting. The peer must pass diversity rules with the coordinator and its
+targets as one group, and a connector accepts only the announced target. An
+attacker flooding announcements or acting as coordinator can obtain at most
+that one slot from a victim, at the cost of one coordination attempt per five
+minutes per victim.
 
 **Topology.** A Profile A announcement states that A is connected to C,
 which exposes one edge of the peer graph that is otherwise hidden.
@@ -722,10 +726,10 @@ persistent storage.
 connection; A's external address comes from its existing peers. The number of
 concurrent coordination connections and requests per minute is capped.
 
-**Lying peers.** A peer can report any address in `addr_recv`.
-Only agreement between two reporting peers in distinct network groups produces an
-external address, a single dissenting report changes nothing (R-2.2), and in
-Profile A the coordinator uses the address it observed itself. A wrong external address
+**Lying peers.** A peer can report any address in `addr_recv`. Only agreement
+between two reporting peers in distinct network groups produces an external
+address, a single dissenting report changes nothing (R-2.2), and in Profile A
+the coordinator uses the address it observed itself. A wrong external address
 wastes one session's attempts at most.
 
 **Coordinator exhaustion.** Coordinators keep no state beyond the observed
@@ -770,7 +774,9 @@ every invalid vector.
   the coordination connection after `punch` and sends `peer = target`;
   handoff pairs the eviction candidate with an existing inbound; onion
   rotation overlap; `SYN_RATE` and the "no NAT" clause removed;
-  `COORD_TIMEOUT_MS` 10 s; topology and fingerprinting notes.
+  `COORD_TIMEOUT_MS` 10 s; topology and fingerprinting notes; punch port
+  relative to the node's own P2P port; test-network allowances (R-2.5);
+  reserved inbound slots count as used when announcing.
 * 0.2.0 (2026-10-10): dedicated punch port, outbound connections bound to
   it, EIM-only scope, two messages instead of seven, no session ids,
   tokens, short IDs, or service bit; messages named `rendezvous` and

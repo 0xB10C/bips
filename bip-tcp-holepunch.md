@@ -362,9 +362,12 @@ belongs to the advertiser itself.
   address manager, returned in response to `getaddr`, or persisted.
   Receivers keep them in a bounded in-memory cache of at most `CACHE_MAX`
   (32) entries with at most `CACHE_PER_PEER` (4) from one source peer,
-  expiring `CACHE_TTL` (10 min) after `time`.
+  expiring `CACHE_TTL` (10 min) after `time`. Receivers MUST reject an
+  element unless `now - CACHE_TTL < time <= now + 10 min`.
 - R-6.3 **Relay.** An element MAY be relayed to a small number of peers
-  that sent `sendaddrv2`, only if `now - 10 min < time <= now + 10 min`.
+  that sent `sendaddrv2`, only if
+  `now - CACHE_TTL < time <= now + 10 min`. Relays MUST preserve `time`;
+  receiving or relaying an element MUST NOT restart its expiry timer.
   It MUST NOT be sent to peers that did not negotiate `sendaddrv2`.
   Advertisers send their element alone or in an `addrv2` message of at
   most ten elements, since implementations commonly relay only small
@@ -558,13 +561,17 @@ acts as its own coordinator. I2P endpoints are permitted through
 - R-12.1 The coordination onion service MUST use a key not used for any
   other purpose, MUST NOT be added to the node's local address list or
   returned via `getaddr`, and MUST be replaced by a fresh key at least
-  every `ONION_ROTATE_H` (24 h)[^rotation]. Its virtual port is the
-  network's default P2P port. Implementations SHOULD terminate it on a
-  distinct local bind address so that inbound connections on it are
-  recognisable as coordination connections. A new address MUST only be
-  announced once its descriptor is published, and the previous service
-  SHOULD stay reachable for `CACHE_TTL` after the switch so that cached
-  announcements keep working.
+  every `ONION_ROTATE_H` (24 h)[^rotation]. An identity MUST stop being
+  announced no later than `ONION_ROTATE_H` after its first announcement,
+  even if the replacement descriptor has not yet been published. Its
+  virtual port is the network's default P2P port. Implementations SHOULD
+  terminate it on a distinct local bind address so that inbound connections
+  on it are recognisable as coordination connections. A new address MUST
+  only be announced once its descriptor is published. The previous service
+  SHOULD stay reachable for `CACHE_TTL + 10 min` after its last
+  announcement; the additional ten minutes allows for clock skew within
+  R-6.2's future timestamp allowance. Retiring services MUST NOT be
+  announced again.
 - R-12.2 Connections accepted on the coordination endpoint are
   coordination-only connections (R-7.4). The advertiser MUST NOT hold more
   than `COORD_INBOUND_MAX` (8) of them and MUST close one that has not

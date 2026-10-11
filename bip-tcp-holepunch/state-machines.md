@@ -45,11 +45,11 @@ Terminal: CONNECTED, FAILED (I-6).
 | NOT_EIM | exactly one endpoint has reports from at least two connected peers in distinct network groups | external address = that endpoint | HAS_ADDRESS |
 | HAS_ADDRESS / READY | a second endpoint has reports from at least two connected peers in distinct network groups | drop external address; stop announcing (R-2.3) | NOT_EIM |
 | HAS_ADDRESS / READY | fewer than two distinct network groups still report the external address | drop external address; stop announcing (R-2.2, R-2.4) | NOT_EIM |
-| HAS_ADDRESS | Profile A: outbound to a `COORDINATOR` peer open with `ADVERTISED` + `PUNCHPORT` sent; Profile B: coordination onion service published | eligible to announce | READY |
+| HAS_ADDRESS | Profile A: outbound to a `COORDINATOR` peer open with `ADVERTISED` + `PUNCHPORT` sent; Profile B: current non-retiring coordination onion service published and within its announcement lifetime | eligible to announce | READY |
 | READY | announce timer (`ANNOUNCE_INTERVAL`) and free inbound slot | send `HOLEPUNCH` element (R-6.4 restricts Profile B to clearnet peers) | READY |
 | READY | no free inbound slot, or external address dropped, or (A) coordinator connection closed | stop announcing | HAS_ADDRESS / NOT_EIM |
 | READY | (A) unsolicited `punch(responder)` from coordinator; (B) `rendezvous` on coordination endpoint valid per R-12.4 | (B) send `punch(initiator, peer=target)`, close the coordination connection; start Session(responder, peer=requester) | READY (+session) |
-| READY | (B) `ONION_ROTATE_H` elapsed | new onion key; republish; announcements use the new address | READY |
+| READY | (B) `ONION_ROTATE_H` elapsed since first announcement | stop announcing old identity; generate and publish new onion key; keep old endpoint reachable for `CACHE_TTL + 10 min` after its last announcement | HAS_ADDRESS |
 
 ## Connector
 

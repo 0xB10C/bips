@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-05-11: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497
-  Version: 0.3.2
+  Version: 0.3.3
   Requires: 155, 324, 434
 ```
 
@@ -183,7 +183,7 @@ acceptance of a validated `rendezvous` under R-12.5.
 
   | Type     | Name      | Description |
   |----------|-----------|-------------|
-  | `uint8`  | `version` | 0 for this document |
+  | `uint8`  | `version` | the highest protocol version the sender supports; 0 for this document |
   | `uint32` | `caps`    | capability bits, see below |
 
   | Bit | Name          | Meaning |
@@ -200,15 +200,21 @@ acceptance of a validated `rendezvous` under R-12.5.
   connections, direction is determined by R-8.1, independently of whether
   the socket was obtained through `connect()` or `accept()`. A node
   MUST NOT send `rendezvous` or `punch` on a connection unless both sides
-  sent the feature with `version` 0. Receiving either message otherwise
-  MUST result in disconnect.
-- R-3.2 Future versions of this protocol are negotiated through the
-  `version` field of the feature data; nodes MUST NOT send `rendezvous` or
-  `punch` to a peer whose feature `version` differs from their own.
+  sent the feature and the negotiated version (R-3.2) is one it supports.
+  Receiving either message otherwise MUST result in disconnect.
+- R-3.2 The negotiated version of a connection is the lower of the two
+  `version` values exchanged[^min-version]. A node that supports version N
+  MUST also support every lower version this protocol has defined, and
+  follows the rules of the negotiated version on that connection. Only
+  version 0 is defined by this document.
 - R-3.3 Participating nodes MUST advertise `NODE_P2P_V2`.
 - R-3.4 No BIP 324 1-byte message type IDs are assigned; the messages use
   the 13-byte encoding. A connection may carry repeated coordination
   exchanges, subject to R-4.4 and the session and request limits.
+- R-3.5 A node SHOULD NOT send the feature on a connection it will close
+  right after the handshake, such as a feeler or an address-fetch
+  connection: such a connection never coordinates, and the feature would
+  only tell one more node that the sender takes part[^no-feeler-feature].
 
 ### 4. Messages
 
@@ -386,7 +392,9 @@ belongs to the advertiser itself.
   at least one free inbound slot, counting slots reserved by sessions
   (R-5.3) as used, a valid external address (R-2.2), and, in
   Profile A, an open connection to the named coordinator with
-  `ADVERTISED` and `PUNCHPORT` set; at most once per `ANNOUNCE_INTERVAL`
+  `ADVERTISED` and `PUNCHPORT` set. It MUST NOT announce an external
+  address whose port is one connectors treat as a bad port (R-5.2), since
+  nobody would punch to it. It announces at most once per `ANNOUNCE_INTERVAL`
   (10 min) per peer. An advertiser announces one element at a time; in
   Profile A it MAY name a different coordinator in a later announcement.
 - R-6.6 Elements count against the receiving peer's address rate limit as
@@ -573,7 +581,8 @@ acts as its own coordinator. I2P endpoints are permitted through
   every `ONION_ROTATE_H` (24 h)[^rotation]. An identity MUST stop being
   announced no later than `ONION_ROTATE_H` after its first announcement,
   even if the replacement descriptor has not yet been published. Its
-  virtual port is the network's default P2P port. Implementations SHOULD
+  virtual port is the advertiser's choice and is carried in `coord_port`.
+  Implementations SHOULD
   terminate it on a distinct local bind address so that inbound connections
   on it are recognisable as coordination connections. A new address MUST
   only be announced once its descriptor is published. The previous service
@@ -587,9 +596,9 @@ acts as its own coordinator. I2P endpoints are permitted through
   retiring endpoints. It MUST close one that has not completed `verack`,
   the feature exchange, and a `rendezvous` within `COORD_TIMEOUT_MS` of
   socket acceptance. This deadline includes transport negotiation.
-- R-12.3 The advertiser announces `coord_*` set to the onion service and the
-  default port and `target_*` set to its external address, subject to R-6.4
-  and R-6.5.
+- R-12.3 The advertiser announces `coord_*` set to the onion service and
+  its virtual port and `target_*` set to its external address, subject to
+  R-6.4 and R-6.5.
 
 ```
  A (advertiser, own onion coordination service)             B (connector)
@@ -677,6 +686,18 @@ connections as hole punching traffic to any firewall or passive observer,
 which BIP 324 cannot hide; a random high port looks like any client. And two
 nodes behind one NAT would otherwise ask for the same port and force the
 NAT to remap one of them.
+
+[^min-version]: An earlier draft required both sides to send the same
+version, which would have cut a node on a new version off from every node
+on the old one. Agreeing on the lower version lets an upgrade spread
+gradually; the cost is that a node has to keep the old rules around. This
+choice cannot be revised once deployed, since old nodes will interpret the
+field the way it was defined when they shipped.
+
+[^no-feeler-feature]: Feelers and address-fetch connections go to addresses
+chosen at random from the address manager and close after the handshake.
+Sending the feature on them would spread the fact that the node takes part
+to many more nodes than it ever coordinates with, for no benefit.
 
 [^one-group]: Proposed in the Delving thread: if the connector picks a
 coordinator and then any target announced through it, the coordinator's
@@ -843,6 +864,10 @@ semantic checks in R-2.1, R-5.1, and R-6.1 still apply before using them.
 
 ## Changelog
 
+* 0.3.3 (2026-10-12): the feature `version` is the highest supported and
+  the lower one is negotiated; the coordination onion's virtual port is
+  free and carried in `coord_port`; no announcement of an external address
+  with a bad port; no feature on feelers and address-fetch connections.
 * 0.3.2 (2026-10-12): the punch port is random per run by default instead
   of the P2P port plus two, with the rationale in a footnote.
 * 0.3.1 (2026-10-12): amendments by Will Clark: two current reporters

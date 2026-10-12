@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-05-11: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497
-  Version: 0.3.1
+  Version: 0.3.2
   Requires: 155, 324, 434
 ```
 
@@ -95,10 +95,12 @@ without `time` and `services`:
 | `uint16_be`   | `port`     | port, big-endian as in BIP 155 |
 
 **Punch port.** A local TCP port per address family that a participating
-node reserves for this protocol. The default is the node's own P2P port
-plus two (8335 for a mainnet node on the default port); implementations
-make it configurable. It is independent of whether the node listens for
-ordinary inbound connections.
+node reserves for this protocol. By default it is chosen at random from
+the dynamic port range (49152 to 65535), excluding ports the
+implementation treats as bad, when the node starts; implementations make
+it configurable. It MUST NOT change while the node runs[^random-port]. It
+is independent of whether the node listens for ordinary inbound
+connections.
 
 **Punch-port socket.** A TCP socket bound to the punch port with
 `SO_REUSEADDR` and `SO_REUSEPORT` set before binding.
@@ -463,7 +465,7 @@ belongs to the advertiser itself.
 
 | Name | Default | Used in |
 |------|---------|---------|
-| punch port | own P2P port + 2 | Terminology |
+| punch port | random in 49152 to 65535, fixed per run | Terminology |
 | `WINDOW_MS` | 15000 | R-5.4 |
 | `RETRY_MS` | 1000 | R-5.5 |
 | `GRACE_MS` | 2000 | R-5.11 |
@@ -663,6 +665,19 @@ listener and the connecting sockets coexist on one port with `SO_REUSEPORT` on
 Linux, the BSDs, and macOS; Windows has no equivalent and is not covered by
 this draft.
 
+[^random-port]: No participant needs to know the punch port: peers see
+only the NAT-mapped port, which the node learns from their reports, and
+announcements carry that external port. What matters is that the port does
+not change, since every reporting peer, the NAT mapping they keep alive, and
+the punch attempts must share one mapping; a new port would need two fresh
+reporters before the node could announce again. A random port is preferred
+over a well-known one for two reasons. A port-preserving NAT exposes the
+local port as the external port, so a fixed number would mark the node's
+connections as hole punching traffic to any firewall or passive observer,
+which BIP 324 cannot hide; a random high port looks like any client. And two
+nodes behind one NAT would otherwise ask for the same port and force the
+NAT to remap one of them.
+
 [^one-group]: Proposed in the Delving thread: if the connector picks a
 coordinator and then any target announced through it, the coordinator's
 operator decides which target the connector ends up with; treating the set
@@ -828,6 +843,8 @@ semantic checks in R-2.1, R-5.1, and R-6.1 still apply before using them.
 
 ## Changelog
 
+* 0.3.2 (2026-10-12): the punch port is random per run by default instead
+  of the P2P port plus two, with the rationale in a footnote.
 * 0.3.1 (2026-10-12): amendments by Will Clark: two current reporters
   required throughout; absolute session deadline, also for the Profile B
   advertiser; a 4-tuple conflict does not establish the session;

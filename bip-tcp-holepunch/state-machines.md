@@ -53,7 +53,7 @@ Terminal: CONNECTED, FAILED (I-6).
 | READY | no free inbound slot, or external address dropped, or (A) coordinator connection closed | stop announcing | HAS_ADDRESS / NOT_EIM |
 | READY | (A) unsolicited `punch(responder)` that passes R-5.1 | start Session(responder, peer=`punch.peer`) | READY (+session) |
 | READY | (B) `rendezvous` on coordination endpoint valid per R-12.4 | start Session(responder, peer=requester); send `punch(initiator, peer=target)` and drain it to the socket by the original R-12.2 deadline before closing | READY (+session) |
-| READY | (B) `ONION_ROTATE_H` elapsed since first announcement | stop announcing old identity; generate and publish new onion key; keep old endpoint reachable for `CACHE_TTL + 10 min` after its last announcement | HAS_ADDRESS |
+| READY | (B) external address changed, or `ONION_ROTATE_H` elapsed since first announcement | stop announcing old identity; generate and publish new onion key; keep old endpoint reachable for `CACHE_TTL + 10 min` after its last announcement; never announce the new address under the old identity (R-12.1) | HAS_ADDRESS |
 
 ## Connector
 

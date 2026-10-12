@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-05-11: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497
-  Version: 0.3.3
+  Version: 0.3.4
   Requires: 155, 324, 434
 ```
 
@@ -467,7 +467,7 @@ belongs to the advertiser itself.
 | I-9 | Punched connections use BIP 324 without v1 fallback; both parties advertise `NODE_P2P_V2`. | Send v1 `version` on a punched connection; assert close. |
 | I-10 | A node has an external address only while two reporting peers in distinct network groups agree on its endpoint and no second agreeing set disagrees (R-2.2, R-2.3); it announces only with an external address and a free inbound slot; a responder reserves one slot per session. | One dissenting report: external address kept. Two agreeing dissenting reports: external address dropped, no announcement. |
 | I-11 | A coordinator never relays application bytes, puts only endpoints it observed into `punch`, keeps both connections open `WINDOW_MS + GRACE_MS` after `punch`, sends no second `punch` to a party within that time, and never pairs parties sharing an address. | Coordinator unit tests. |
-| I-12 | The Profile B coordination service uses a key not used for anything else, rotates it at least every `ONION_ROTATE_H` (24 h), is never advertised through local address discovery or `getaddr`, and its announcements leave only on clearnet connections. | Compare onion ids; assert no element on onion peers. |
+| I-12 | The Profile B coordination service uses a key not used for anything else, replaces it when the external address changes and at least every `ONION_ROTATE_H` (24 h), is never advertised through local address discovery or `getaddr`, and its announcements leave only on clearnet connections. | Change the reported address; assert a new onion id is announced and the old one never with the new address. Compare onion ids over time; assert no element on onion peers. |
 
 ### 10. Limits
 
@@ -486,7 +486,7 @@ belongs to the advertiser itself.
 | `ANNOUNCE_INTERVAL` | 10 min | R-6.5 |
 | `HP_ATTEMPT_INTERVAL` | 5 min | R-7.2 |
 | `HP_OUTBOUND_MAX` | 1 | R-8.1 |
-| `ONION_ROTATE_H` | 24 h | R-12.1 |
+| `ONION_ROTATE_H` | 24 h, maximum identity lifetime | R-12.1 |
 
 ### 11. Profile A: coordinator
 
@@ -576,9 +576,12 @@ acts as its own coordinator. I2P endpoints are permitted through
 `coord_net` = `I2P` with the same rules; I2P specifics are out of scope.
 
 - R-12.1 The coordination onion service MUST use a key not used for any
-  other purpose, MUST NOT be added to the node's local address list or
-  returned via `getaddr`, and MUST be replaced by a fresh key at least
-  every `ONION_ROTATE_H` (24 h)[^rotation]. An identity MUST stop being
+  other purpose and MUST NOT be added to the node's local address list or
+  returned via `getaddr`. The key MUST be replaced whenever the external
+  address it was announced with changes, so that a new clearnet address
+  is never announced under an onion identity that was seen with an old
+  one, and at least every `ONION_ROTATE_H` (24 h) regardless, at a time
+  that is not aligned across nodes[^rotation]. An identity MUST stop being
   announced no later than `ONION_ROTATE_H` after its first announcement,
   even if the replacement descriptor has not yet been published. Its
   virtual port is the advertiser's choice and is carried in `coord_port`.
@@ -633,8 +636,9 @@ acts as its own coordinator. I2P endpoints are permitted through
 #### Privacy considerations for Profile B
 
 An announcement links an onion identity to a clearnet endpoint by design.
-R-12.1 and R-6.4 keep that identity separate from everything else and
-short-lived. B learns that A is unreachable and A's clearnet endpoint; A
+R-12.1 and R-6.4 keep that identity separate from everything else, tied
+to one clearnet address, and short-lived, so that it does not follow a
+node across the addresses its ISP assigns it over time. B learns that A is unreachable and A's clearnet endpoint; A
 learns B's clearnet endpoint but not which Tor client connected. No third
 party learns of the pairing. Because requesters are anonymous to A, only
 the global limits of R-5.1 bound them; a forged `requester` costs A one
@@ -718,10 +722,25 @@ gives one rule for every session; the slot is already isolated from anchors
 and diversity accounting, and the coordinator-chosen peer must pass the same
 diversity check as an announced target.
 
-[^rotation]: A long-lived coordination onion address would allow anyone to
-correlate successive clearnet addresses of the same node. Tor onion
-service descriptors take minutes to publish, so rotation is daily rather
-than per announcement.
+[^rotation]: Announcements are relayed network-wide and bind the onion
+identity to a clearnet address, so anyone running a node can collect them.
+Home addresses change: many ISPs reassign them daily or on reconnect. An
+onion identity that outlives an address change is a persistent name for a
+node that today has none, since unreachable nodes are in nobody's address
+manager, and it would let an observer follow the node from one ISP-assigned
+address to the next. Rotating on a schedule alone does not prevent that: if
+the identity lasts a day and the address changes about daily, each identity
+overlaps two addresses, the first links address one to address two, the
+next links two to three, and the node can be followed indefinitely. Hence
+the rule that a new external address is never announced under an old
+identity, which breaks the chain, with the daily maximum as a bound for a
+node whose address is stable, and an unaligned time so that many nodes do
+not rotate in the same minute. Rotating per announcement is not possible,
+since a Tor descriptor takes minutes to publish; the pause after an
+address change, while the node waits for two reporting peers to agree
+again, covers that delay. Within one run, a port-preserving NAT keeps the
+same external port across an address change; that port is a weak
+identifier that a restart resets.
 
 **Why a dedicated punch port?** Reusing the P2P listening port would
 require `SO_REUSEPORT` on the existing listener, a rule for telling
@@ -864,6 +883,9 @@ semantic checks in R-2.1, R-5.1, and R-6.1 still apply before using them.
 
 ## Changelog
 
+* 0.3.4 (2026-10-12): the coordination onion identity is replaced whenever
+  the external address changes, with the daily rotation as a maximum
+  lifetime; rationale on following a node across ISP-assigned addresses.
 * 0.3.3 (2026-10-12): the feature `version` is the highest supported and
   the lower one is negotiated; the coordination onion's virtual port is
   free and carried in `coord_port`; no announcement of an external address

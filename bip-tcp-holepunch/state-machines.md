@@ -21,11 +21,14 @@ starts on acceptance of a validated `rendezvous` (R-12.5).
 | PUNCHING | attempt fails because the 4-tuple is in use | close socket; do not retry; await a matching listener socket until the session deadline (R-5.6) | PUNCHING |
 | WAITING_RETRY | retry timer fires, window not over | open punch-port socket; `connect(peer)` | PUNCHING |
 | PUNCHING | `connect()` completes, remote endpoint == `peer` | session connection = this socket; initiator: send BIP 324 key; responder: wait | ESTABLISHED |
+| (none) | listener accepts a socket that matches no session | hold it untouched for `HOLD_MS`, at most `HELD_MAX`; close it then, or when evicted by a newer one (R-5.7) | (none) |
+| (none) | `punch` accepted while a held socket matches `peer` | session connection = the held socket; initiator: send BIP 324 key; responder: wait | ESTABLISHED |
 | PUNCHING / WAITING_RETRY | listener accepts socket with remote endpoint == `peer` | close pending attempt; session connection = accepted socket; initiator: send BIP 324 key; responder: wait | ESTABLISHED |
 | PUNCHING / WAITING_RETRY | window timer fires | close pending attempt; start `GRACE_MS` timer | GRACE |
 | GRACE | listener accepts socket with remote endpoint == `peer` | as above | ESTABLISHED |
 | ESTABLISHED (responder) | BIP 324 bytes arrive | complete handshake as responder | HANDSHAKE |
 | ESTABLISHED (responder) | v1 prefix arrives | close connection; release slot | FAILED |
+| ESTABLISHED (responder) | peer closes before any byte arrived | drop the socket; resume attempts (R-5.8) | WAITING_RETRY |
 | ESTABLISHED (initiator) | BIP 324 handshake completes | send `version` | HANDSHAKE |
 | any non-terminal | `WINDOW_MS + GRACE_MS` after session start, without `verack` | close all session sockets; release slot | FAILED |
 | HANDSHAKE | `verack` received | account per R-8.1 (initiator: hole-punch outbound, responder: inbound) | CONNECTED |

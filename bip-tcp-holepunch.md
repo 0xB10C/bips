@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-05-11: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497
-  Version: 0.3.4
+  Version: 0.3.5
   Requires: 155, 324, 434
 ```
 
@@ -304,10 +304,20 @@ acceptance of a validated `rendezvous` under R-12.5.
   this session or by `accept()` on the punch-port listener. Because both
   parties use fixed ports, at most one TCP connection can exist per
   session. A socket accepted on the punch-port listener that matches no
-  session MUST be closed.
+  session is *held*: nothing is read from or written to it, and it becomes
+  the session's connection if a session for its remote endpoint starts
+  within `HOLD_MS` (10000 ms), otherwise it is closed then. A node holds at
+  most `HELD_MAX` (8) sockets and closes the oldest to make room. The
+  other party's attempt commonly arrives before the `punch` that tells this
+  node to expect it[^hold].
 - R-5.8 On establishment the node stops the attempts. The initiator
   immediately sends its BIP 324 initiator bytes. The responder sends nothing
-  until BIP 324 bytes arrive.
+  until BIP 324 bytes arrive. If the responder's connection is closed by
+  the peer before any byte arrived, the peer was not expecting it yet: the
+  session does not end, and the responder resumes attempts under R-5.4 and
+  R-5.5 and keeps accepting a matching socket, until the deadline of
+  R-5.11. A connection closed after bytes were exchanged ends the session
+  as a failure.
 - R-5.9 The punched connection MUST use the BIP 324 v2 transport. A v1
   prefix on the connection is an error; the connection MUST be closed and
   no v1 fallback attempted.
@@ -331,8 +341,11 @@ acceptance of a validated `rendezvous` under R-12.5.
 - R-5.13 In Profile A, both parties start on receipt of `punch`. The
   coordinator sends the two `punch` messages back to back, the one for the
   responder first. In Profile B, the advertiser starts on acceptance of
-  the validated `rendezvous`, and the connector on receipt of `punch`.
-  Their deadlines are measured from their respective session start times.
+  the validated `rendezvous`, and the connector on receipt of `punch`,
+  which reaches it only after a trip through Tor; the advertiser's first
+  attempt is therefore expected to arrive before the connector's session
+  exists, and R-5.7 and R-5.8 are what make that harmless. Their deadlines
+  are measured from their respective session start times.
 - R-5.14 In Profile A the coordinator MUST keep both connections open for
   `WINDOW_MS + GRACE_MS` after sending `punch`: they are punch-port
   connections that keep the parties' NAT mappings alive. In Profile B the
@@ -457,7 +470,7 @@ belongs to the advertiser itself.
 | ID | Invariant | Test shape |
 |----|-----------|------------|
 | I-1 | Each session has exactly one initiator. The initiator sends the first bytes (BIP 324 key, then `version`); the responder sends nothing before receiving BIP 324 bytes. | Force roles on two nodes; capture first bytes on the wire. |
-| I-2 | A session is keyed by (punch port, peer endpoint) and has at most one connection, whose remote endpoint equals `peer` exactly. A socket accepted on the punch port that matches no session is closed. | Connect to the punch port from an unexpected endpoint; assert close. |
+| I-2 | A session is keyed by (punch port, peer endpoint) and has at most one connection, whose remote endpoint equals `peer` exactly. A socket accepted on the punch port that matches no session is held for at most `HOLD_MS`, untouched, and closed unless a session for its endpoint starts meanwhile; at most `HELD_MAX` are held. | Connect to the punch port from an unexpected endpoint; assert nothing is sent and the socket closes after `HOLD_MS`. Connect, then start a session for that endpoint; assert it uses the held socket. |
 | I-3 | Every non-proxied clearnet outbound connection, every punch attempt, and the listener of one family share the punch port, except connections that fell back to an ephemeral port per R-1.1, which never set `PUNCHPORT`. | Inspect local ports of all sockets. |
 | I-4 | Connect attempts go only to the `peer` of an accepted `punch` that is routable, not local, not the node's own address, same family, and, when the `punch` answers a `rendezvous`, equal to its `target`; one attempt at a time per session; at most `WINDOW_MS / RETRY_MS + 1` attempts per session. | Feed invalid `punch` and a redirecting `punch`; count SYNs with a socket mock. |
 | I-5 | At most `MAX_ACTIVE_SESSIONS` concurrent, `SESSIONS_PER_MIN` per minute, one per remote address per `PER_IP_INTERVAL`. | Flood `punch`; assert ignores. |
@@ -477,6 +490,7 @@ belongs to the advertiser itself.
 | `WINDOW_MS` | 15000 | R-5.4 |
 | `RETRY_MS` | 1000 | R-5.5 |
 | `GRACE_MS` | 2000 | R-5.11 |
+| `HOLD_MS` / `HELD_MAX` | 10000 / 8 | R-5.7 |
 | `MAX_ACTIVE_SESSIONS` | 2 | R-5.1 |
 | `SESSIONS_PER_MIN` | 4 | R-5.1 |
 | `PER_IP_INTERVAL` | 10 min | R-5.1 |
@@ -703,6 +717,22 @@ chosen at random from the address manager and close after the handshake.
 Sending the feature on them would spread the fact that the node takes part
 to many more nodes than it ever coordinates with, for no benefit.
 
+[^hold]: Both parties dial each other, so whichever starts first reaches
+the other's listener before that node has created its session. In Profile
+A the coordinator sends the responder's `punch` first and the two arrive
+milliseconds apart. In Profile B the advertiser starts the moment it
+accepts the `rendezvous`, while its `punch` to the connector still has to
+cross Tor, often taking seconds; its first attempt therefore nearly always
+arrives at a connector that does not yet expect it. Closing such a socket
+at once, as an earlier draft required, failed the session on both sides:
+the advertiser's established connection was closed, which ended its
+session, and the connector's later attempt then found no session on the
+advertiser. Holding the socket, untouched, lets it become the session's
+connection when the `punch` arrives; the responder's rule to resume after a
+zero-byte close covers a connector that held it for less, or not at all.
+Held sockets are cheap and bounded, and a scanner gains nothing from them,
+since nothing is ever sent on one.
+
 [^one-group]: Proposed in the Delving thread: if the connector picks a
 coordinator and then any target announced through it, the coordinator's
 operator decides which target the connector ends up with; treating the set
@@ -883,6 +913,10 @@ semantic checks in R-2.1, R-5.1, and R-6.1 still apply before using them.
 
 ## Changelog
 
+* 0.3.5 (2026-10-13): an unexpected socket on the punch port is held for
+  `HOLD_MS` instead of closed at once, and a responder whose connection is
+  closed before any byte arrived resumes its attempts; both fix the Profile
+  B race in which the advertiser's attempt beats its `punch` through Tor.
 * 0.3.4 (2026-10-12): the coordination onion identity is replaced whenever
   the external address changes, with the daily rotation as a maximum
   lifetime; rationale on following a node across ISP-assigned addresses.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT OR BSD-2-Clause
 """Generate and verify test vectors for the coordinator-less TCP hole punching
-BIP draft (v0.2).
+BIP draft (v0.3).
 
 Covers the `feature` payload, `PUNCHKEY` addrv2 elements (valid and invalid),
 and the pairing computation of section 4: ECDH shared secret, pair value,
@@ -371,7 +371,7 @@ def build():
 
     return {
         "bip": "tcp-holepunch-coordinatorless",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "feature_id": FEATURE_ID,
         "punchkey_network_id": NET_PUNCHKEY,
         "pair_tag": PAIR_TAG.decode(),

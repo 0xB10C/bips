@@ -1,6 +1,6 @@
 {
  "bip": "tcp-holepunch-coordinatorless",
- "version": "0.1.0",
+ "version": "0.2.0",
  "feature_id": "https://delvingbitcoin.org/t/2497/22",
  "punchkey_network_id": 9,
  "pair_tag": "tcp-holepunch/pair",

@@ -1,4 +1,4 @@
-# State tables for the coordinator-less TCP hole punching BIP draft (v0.1)
+# State tables for the coordinator-less TCP hole punching BIP draft (v0.2)
 
 Each table lists (state, event, action, next state). Rule numbers refer
 to the main document. Events not listed for a state are ignored, except
@@ -65,23 +65,23 @@ Terminal: CONNECTED, FAILED (I-6). Nothing is reported or retried (R-8.9).
 
 | State | Event | Action | Next |
 |-------|-------|--------|------|
-| any | `PUNCHKEY` element received, fails R-5.1 or carries own key or own address (R-5.6) | ignore | any |
-| any | valid element, (endpoint, pubkey) already stored | `time = max(time, element.time)`; keep `received_at` and slot (R-6.2) | any |
-| any | valid element, new (endpoint, pubkey); slot free or occupant expired | store with `received_at = now`, source group of the sending peer (R-6.3, R-6.4) | any |
-| any | valid element, new (endpoint, pubkey); slot holds a live entry | drop the newcomer (R-6.4) | any |
-| any | valid element with `now - RELAY_TTL < time` | relay to at most `RELAY_FANOUT` peers that sent the feature and `sendaddrv2`, not the source, `time` preserved (R-5.3) | any |
+| any | `PUNCHKEY` element received that fails R-5.1, carries own key or own address (R-5.6), or exceeds the peer's `PUNCHKEY_PER_HOUR` (R-5.5) | ignore | any |
+| any | valid element, (endpoint, pubkey) already stored | `last_seen = now`; `time = max(time, element.time)`; keep `received_at`; relay if not relayed within `RELAY_TTL` (R-6.1, R-5.3) | any |
+| any | valid new element; source group below `SOURCE_CAP`, table below `TABLE_MAX` | store with `received_at = last_seen = now`, compute the shared secret; relay (R-6.1, R-5.3) | any |
+| any | valid new element; source group at `SOURCE_CAP` | evict an expired entry of that group, else a random one; store; relay (R-6.2) | any |
+| any | valid new element; table at `TABLE_MAX` | evict an expired entry, else a random entry of the largest source group; store; relay (R-6.3) | any |
 | any | `getaddr` from a peer that sent the feature and `sendaddrv2` (OPTIONAL, R-5.7) | append up to `SYNC_MAX` random unexpired entries to the response | any |
-| any | entry reaches `time + ENTRY_TTL` | expired: excluded from rounds, may be removed (R-6.5) | any |
+| any | `ENTRY_TTL` after `last_seen` | expired: excluded from rounds, may be removed (R-6.4) | any |
 | any | round picks an entry | remove it (R-7.6) | any |
-| any | restart | empty table (R-6.7) | any |
+| any | restart | empty table (R-6.6) | any |
 
 ## Round (section 7)
 
 | State | Event | Action | Next |
 |-------|-------|--------|------|
-| IDLE | active tip changes to `B`; in initial block download, or `B`'s header first received more than `ROUND_FRESH_MS` ago, or `B` already had a round | no round | IDLE |
-| IDLE | active tip changes to fresh `B`, no free slot of either kind | skip the round | IDLE |
-| IDLE | active tip changes to fresh `B` | eligible = entries with `received_at` before the first receipt of `B`'s parent header (R-7.2); candidates = eligible entries passing R-7.3 with the role from R-4.7; compute pair values (R-4.5); sort ascending (R-4.6) | PICKING |
-| PICKING | next candidate; its network group equals that of a pick already taken, or the slot its role needs was reserved meanwhile | skip it | PICKING |
-| PICKING | next candidate; `PICKS_PER_ROUND` picks made, or another session would exceed `MAX_ACTIVE_SESSIONS`, or list exhausted | stop | IDLE |
+| IDLE | active tip changes; in initial block download, or the height did not increase, or `B` already had a round | no round (R-7.1) | IDLE |
+| IDLE | tip advances to `B`, no free slot of either kind | skip the round | IDLE |
+| IDLE | tip advances to `B` | eligible = entries with `received_at` before the tip reached `B`'s parent (R-7.2); candidates = eligible entries passing R-7.3 with the role from R-4.7; compute pair values (R-4.5); sort ascending (R-4.6) | PICKING |
+| PICKING | next candidate; its network group or source group equals that of a pick already taken, or the slot its role needs was reserved meanwhile | skip it (R-7.4) | PICKING |
+| PICKING | `PICKS_PER_ROUND` picks made, or another session would exceed `MAX_ACTIVE_SESSIONS`, or list exhausted | stop | IDLE |
 | PICKING | next candidate accepted | reserve the slot for its role; start Session with the round start as session start (R-7.4) | PICKING |

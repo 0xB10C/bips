@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.1.0
+  Version: 0.2.0
   Requires: 155, 324, 434
 ```
 
@@ -151,7 +151,8 @@ point (R-4.1).
 
 **Entry.** A stored announcement: the announced endpoint, the announced
 public key, the element's `time`, the local time the node first received
-that (endpoint, key) combination (`received_at`), and its source group.
+that (endpoint, key) combination (`received_at`), the local time it last
+received it (`last_seen`), its shared secret (R-4.4), and its source group.
 
 **Pair value.** A 256-bit value derived from the two parties' keys and a
 block hash (R-4.5). Both parties compute the same value; nobody else can.
@@ -322,7 +323,9 @@ bytes.
   are stored if R-5.1 passes but not relayed. Elements MUST NOT be sent to
   peers that did not negotiate `sendaddrv2`. Announcers send their element
   alone or in an `addrv2` message of at most ten elements, since
-  implementations commonly relay only small messages.
+  implementations commonly relay only small messages. A node relays only
+  elements it accepted into its table or refreshed there, and a given
+  (endpoint, `pubkey`) at most once per `RELAY_TTL`.
 - R-5.4 **Self-announcement.** A node announces, per address family, only
   while it has a valid external address (R-2.2) whose port is not one it
   would itself treat as a bad port (R-7.3), and at least one free
@@ -332,8 +335,14 @@ bytes.
   sent the feature (R-3.1), at most once per `ANNOUNCE_INTERVAL` (30 min)
   per peer, and once more promptly after the key or the external address
   changed. A node announces one element per address family at a time.
-- R-5.5 Elements count against the receiving peer's address rate limit as
-  one address each.
+- R-5.5 **Rate.** A node MUST NOT process more than `PUNCHKEY_PER_HOUR`
+  (120) elements from one peer in any hour, counting every `PUNCHKEY`
+  element received on the connection whether or not it is accepted;
+  further elements from that peer in that hour are ignored, which is not
+  by itself a protocol violation, and a node SHOULD NOT send a peer more
+  than that[^rate-limit]. Elements in a response to the node's own
+  `getaddr` (R-5.7) are not counted. Elements also count against the
+  receiving peer's general address rate limit as one address each.
 - R-5.6 A node MUST ignore elements that carry its own public key or one of
   its own external addresses.
 - R-5.7 **Synchronisation (OPTIONAL).** In its response to a `getaddr`
@@ -347,60 +356,47 @@ bytes.
 ### 6. The announcement table
 
 The table bounds how many announcements a node keeps and, more
-importantly, how much of it any one peer can fill. Placement follows the
-address manager's new table[^source-bucket]. The source group chooses a
-small allotment of buckets, the element chooses the slot inside it, and a
-local secret makes both unpredictable.
+importantly, how much of it any one peer can fill[^source-cap]. It is
+organised by the peer an element arrived from, the one thing about an
+element that cannot be faked; nothing in it is keyed by a value the
+announcer chooses.
 
-- R-6.1 Each node holds a 32-byte secret `key`, generated at startup from
-  fresh randomness and never shared, used only for table placement.
-- R-6.2 Entries are identified by (endpoint, `pubkey`). Receiving an
-  element whose (endpoint, `pubkey`) is already stored refreshes that
-  entry's `time` to the larger of the two values and leaves `received_at`
-  and its slot unchanged. An element with a different `pubkey` for a
-  stored endpoint, or a different endpoint for a stored `pubkey`, is a
-  distinct entry.
-- R-6.3 The table has `TABLE_BUCKETS` (64) buckets of `BUCKET_SIZE` (16)
-  slots. With `src` the source group, `grp` the network group of the
-  announced address, both in the implementation's byte representation,
-  `endpoint` encoded as in Terminology, hashes read as little-endian
-  integers before the modulo, and `allot` and `bucket` serialized as
-  `uint32` when hashed, the RECOMMENDED placement is:
-
-  ```
-  allot  = SHA256(key || 0x00 || src || grp)                  mod BUCKETS_PER_SOURCE
-  bucket = SHA256(key || 0x01 || src || allot)                mod TABLE_BUCKETS
-  slot   = SHA256(key || 0x02 || bucket || endpoint || pubkey) mod BUCKET_SIZE
-  ```
-
-  Elements from one source group can therefore occupy at most
-  `BUCKETS_PER_SOURCE` (8) buckets, `BUCKETS_PER_SOURCE * BUCKET_SIZE`
-  (128) slots, and the same element from the same source always maps to
-  the same slot. An implementation MAY use a different placement with the
-  same properties: keyed by a local secret, buckets chosen by the source
-  group with at most `BUCKETS_PER_SOURCE` buckets per source group, and
-  the slot chosen by the entry.
-- R-6.4 If the slot holds a different entry, the newcomer replaces it only
-  if that entry has expired (R-6.5); otherwise the newcomer is
-  dropped[^occupant].
-- R-6.5 An entry expires when `now >= time + ENTRY_TTL`. Expired entries
-  MUST NOT take part in rounds and MAY be removed at any time.
-- R-6.6 An entry is removed when a round picks it (R-7.6).
-- R-6.7 The table is not persisted. A restart starts with an empty table.
+- R-6.1 Entries are identified by (endpoint, `pubkey`). The node computes
+  an entry's shared secret (R-4.4) once, when it stores the entry.
+  Receiving an element whose (endpoint, `pubkey`) is already stored
+  refreshes that entry: `last_seen` becomes the current time and `time`
+  the larger of the two values, while `received_at` is unchanged. An
+  element with a different `pubkey` for a stored endpoint, or a different
+  endpoint for a stored `pubkey`, is a distinct entry.
+- R-6.2 A node keeps at most `SOURCE_CAP` (128) entries per source group.
+  When it accepts a new entry for a full source group, it evicts an
+  expired entry of that group if there is one, otherwise an entry of that
+  group chosen uniformly at random, and stores the
+  newcomer[^random-eviction]. A refresh evicts nothing.
+- R-6.3 A node keeps at most `TABLE_MAX` (4096) entries in total. When it
+  accepts a new entry while the table is full, it evicts an expired entry
+  if there is one, otherwise an entry chosen uniformly at random from the
+  source group that holds the most entries.
+- R-6.4 An entry expires `ENTRY_TTL` (2 h) after its
+  `last_seen`[^last-seen]. Expired entries MUST NOT take part in rounds
+  and MAY be removed at any time.
+- R-6.5 An entry is removed when a round picks it (R-7.6).
+- R-6.6 The table is not persisted. A restart starts with an empty table.
 
 ### 7. Rounds
 
 - R-7.1 **Trigger.** A round starts when the node's active chain tip
-  changes to a block `B`, provided the node is not in initial block
-  download and it first received `B`'s header less than `ROUND_FRESH_MS`
-  (120000 ms) ago[^block-trigger]. Each block hash triggers at most one
-  round. The round's start time is the time of the tip change.
+  changes to a block `B` at a greater height than the previous tip,
+  provided the node is not in initial block download. A tip change that
+  does not increase the height, such as a reorganisation to a chain of
+  equal length, holds no round[^reorg]. Each block hash triggers at most
+  one round. The round's start time is the time of the tip change, and
+  the node remembers that time for each of its recent
+  tips[^block-trigger].
 - R-7.2 **Eligibility.** An entry takes part in the round for `B` only if
-  its `received_at` is earlier than the time the node first received the
-  header of `B`'s parent[^parent-rule]. A header the node received before
-  its current run counts as received before every entry. Implementations
-  therefore record, for each header accepted in the current run, when it
-  was first received by any message.
+  its `received_at` is earlier than the time the node's tip reached `B`'s
+  parent[^parent-rule]. If the tip reached `B`'s parent before the node's
+  current run, no entry takes part.
 - R-7.3 **Candidate checks.** An eligible entry is a candidate if all of
   the following hold:
   - it has not expired, and the node has a punch port and an external
@@ -410,9 +406,8 @@ local secret makes both unpredictable.
     implementation treats as a bad port for outbound connections;
   - the node has no connection and no session to the endpoint, and no
     session with an entry carrying the same `pubkey`;
-  - no session to the same address started within `PER_IP_INTERVAL`
-    (10 min), and fewer than `GROUP_SESSIONS_PER_HOUR` (4) sessions to
-    addresses in the endpoint's network group started in the last hour;
+  - fewer than `GROUP_SESSIONS_PER_HOUR` (4) sessions to addresses in the
+    endpoint's network group started in the last hour;
   - with the role from R-4.7 for this round: as initiator, the hole-punch
     outbound slot is free and the endpoint passes the node's outbound
     network-group diversity rules against its existing outbound peers; as
@@ -424,15 +419,15 @@ local secret makes both unpredictable.
   announcement costs one session's attempts and nothing else[^self-verify].
 - R-7.4 **Picks.** The node computes the pair value (R-4.5) of every
   candidate for `B`, sorts the candidates by it (R-4.6), and walks the
-  list from the lowest value. It takes a candidate unless the candidate's
-  network group equals that of a candidate already taken in this round or
-  the slot its role needs has been reserved meanwhile. It stops after
-  `PICKS_PER_ROUND` (3) picks, or earlier when another session would
-  exceed `MAX_ACTIVE_SESSIONS` (6)[^ranking]. For each pick the node
-  reserves the slot its role needs until the session ends and starts a
-  session (section 8) with the entry's endpoint and the round's start as
-  the session start. A node with neither a free hole-punch outbound slot
-  nor a free inbound slot skips the round.
+  list from the lowest value. It takes a candidate unless its network
+  group or its source group equals that of a candidate already taken in
+  this round[^one-ticket], or the slot its role needs has been reserved
+  meanwhile. It stops after `PICKS_PER_ROUND` (3) picks, or earlier when
+  another session would exceed `MAX_ACTIVE_SESSIONS` (6)[^ranking]. For
+  each pick the node reserves the slot its role needs until the session
+  ends and starts a session (section 8) with the entry's endpoint and the
+  round's start as the session start. A node with neither a free
+  hole-punch outbound slot nor a free inbound slot skips the round.
 - R-7.5 No attempt is made outside a round, and no entry is attempted more
   than once per announcement.
 - R-7.6 A picked entry is removed from the table whatever the outcome. It
@@ -533,15 +528,15 @@ local secret makes both unpredictable.
 | I-2 | A session is keyed by (punch port, peer endpoint) and has at most one connection, whose remote endpoint equals the entry's endpoint exactly. A socket accepted on the punch port that matches no session is held for at most `HOLD_MS`, untouched, and closed unless a session for its endpoint starts meanwhile; at most `HELD_MAX` are held. | Connect to the punch port from an unexpected endpoint; assert nothing is sent and the socket closes after `HOLD_MS`. Connect, then start a session for that endpoint; assert it uses the held socket. |
 | I-3 | Every non-proxied clearnet outbound connection, every punch attempt, and the listener of one family share the punch port, except connections that fell back to an ephemeral port per R-1.1, which never report. | Inspect local ports of all sockets. |
 | I-4 | Connect attempts go only to endpoints of entries picked in a round: routable, not local, not the node's own address, same family, not a bad port; one attempt at a time per session; at most seven attempts per session. | Feed elements with invalid endpoints; count SYNs with a socket mock. |
-| I-5 | At most `PICKS_PER_ROUND` sessions start per round, at most `MAX_ACTIVE_SESSIONS` exist, at most one per remote address per `PER_IP_INTERVAL` and `GROUP_SESSIONS_PER_HOUR` per network group. | Fill the table; connect blocks; count sessions. |
+| I-5 | At most `PICKS_PER_ROUND` sessions start per round, at most one of them per source group and one per network group; at most `MAX_ACTIVE_SESSIONS` exist; at most `GROUP_SESSIONS_PER_HOUR` start per network group per hour. | Fill the table from one peer and from several; connect blocks; count sessions per source and per group. |
 | I-6 | Every session ends within `WINDOW_MS + GRACE_MS` in success or failure and releases every socket except the session connection and the reserved slot. | Drive sessions to both outcomes; compare socket counts. |
-| I-7 | `PUNCHKEY` elements never enter the address manager or persisted files, are not relayed outside `RELAY_TTL`, leave the node only towards peers that sent the feature and `sendaddrv2`, and a `getaddr` response carries at most `SYNC_MAX` of them. | Send elements; query the address manager and `getaddr` from peers with and without the feature; restart. |
+| I-7 | `PUNCHKEY` elements never enter the address manager or persisted files, are not relayed outside `RELAY_TTL` nor more than once per `RELAY_TTL` per entry, leave the node only towards peers that sent the feature and `sendaddrv2`, are processed from one peer at most `PUNCHKEY_PER_HOUR` times an hour, and a `getaddr` response carries at most `SYNC_MAX` of them. | Send elements; query the address manager and `getaddr` from peers with and without the feature; exceed the per-peer rate; restart. |
 | I-8 | A hole-punch outbound exists only as the initiator side of a session whose peer endpoint is that of a picked entry and passes outbound diversity; at most `HP_OUTBOUND_MAX` at a time; never an anchor. | Entry in an existing outbound's network group: assert no initiator session. |
 | I-9 | Punched connections use BIP 324 without v1 fallback; both parties advertise `NODE_P2P_V2`. | Send v1 `version` on a punched connection; assert close. |
 | I-10 | A node has an external address only while two reporting peers in distinct network groups agree on its endpoint and no second agreeing set disagrees (R-2.2, R-2.3); it announces only with an external address, its current key, and a free slot of either kind; a pick reserves the slot its role needs. | One dissenting report: external address kept. Two agreeing dissenting reports: external address dropped, no announcement. Both slots taken: no announcement, no picks. |
-| I-11 | Table placement is keyed by a local secret; entries from one source group occupy at most `BUCKETS_PER_SOURCE * BUCKET_SIZE` slots; a live entry is not displaced before it expires; a re-received entry keeps its `received_at`; a picked entry is removed. | Flood from one peer with distinct addresses and keys; count stored entries. Re-send a stored element; assert eligibility unchanged. |
+| I-11 | Entries from one source group never exceed `SOURCE_CAP` and the table never exceeds `TABLE_MAX`; a full group evicts at random within itself, a full table evicts from its largest group, and a refresh evicts nothing; an entry learned through one peer is never displaced by elements from another peer; a re-received entry keeps its `received_at`; a picked entry is removed. | Flood from one peer with distinct addresses and keys; count that peer's entries and check entries from other peers are untouched. Re-send a stored element; assert eligibility unchanged. |
 | I-12 | The key is replaced whenever an announced external address changes and at least every `KEY_ROTATE_H`; a new address is never announced under a key seen with an old one; pair values use the current key only. | Change the reported address; assert a new key is announced and the old one never with the new address. |
-| I-13 | An entry takes part only in rounds for blocks whose parent's header the node first received after the entry; the pair value depends on that block's hash. | Insert an entry, connect one block: no attempt. Connect another: attempt. Replace the block hash: different pick. |
+| I-13 | An entry takes part only in rounds for blocks whose parent the node's tip reached after the entry was first received; the pair value depends on that block's hash. | Insert an entry, connect one block: no attempt. Connect another: attempt. Replace the block hash: different pick. |
 
 ### 11. Limits
 
@@ -552,13 +547,13 @@ local secret makes both unpredictable.
 | `RETRY_MS` | 1000, doubled after each failure | R-8.2 |
 | `GRACE_MS` | 5000 | R-8.8 |
 | `HOLD_MS` / `HELD_MAX` | 10000 / 8 | R-8.4 |
-| `PICKS_PER_ROUND` | 3 | R-7.4 |
+| `PICKS_PER_ROUND` | 3, at most one per source group and per network group | R-7.4 |
 | `MAX_ACTIVE_SESSIONS` | 6 | R-7.4 |
-| `PER_IP_INTERVAL` | 10 min | R-7.3 |
 | `GROUP_SESSIONS_PER_HOUR` | 4 | R-7.3 |
-| `ROUND_FRESH_MS` | 120000 | R-7.1 |
-| `TABLE_BUCKETS` / `BUCKET_SIZE` / `BUCKETS_PER_SOURCE` | 64 / 16 / 8 | R-6.3 |
-| `ENTRY_TTL` | 2 h | R-5.1, R-6.5 |
+| `SOURCE_CAP` | 128 | R-6.2 |
+| `TABLE_MAX` | 4096 | R-6.3 |
+| `PUNCHKEY_PER_HOUR` | 120 | R-5.5 |
+| `ENTRY_TTL` | 2 h | R-5.1, R-6.4 |
 | `RELAY_TTL` / `FUTURE_SKEW` | 10 min / 10 min | R-5.1, R-5.3 |
 | `RELAY_FANOUT` | 2 | R-5.3 |
 | `ANNOUNCE_INTERVAL` | 30 min | R-5.4 |
@@ -683,29 +678,75 @@ announcing and its entries age out of every table.
 early on most tables are nearly empty and two nodes rarely hold each
 other. Letting a node pull a sample of a peer's table with the `getaddr`
 it sends anyway on new outbound connections fills tables within a few
-connections. The responding peer is the source for placement, so the
-sample cannot escape its allotment, and every pulled entry still waits for
-a block before it can be picked. Serving them only to peers that sent the
+connections. The responding peer is the source, so the sample counts
+against that peer's cap, and every pulled entry still waits for a block
+before it can be picked. Serving them only to peers that sent the
 feature keeps them out of ordinary address caches.
 
-[^source-bucket]: The announced address is whatever the announcer wrote,
-so bucketing by it would let one peer claim a thousand network groups for
+[^source-cap]: The announced address is whatever the announcer wrote, so
+bounding by it would let one peer claim a thousand network groups for
 free. The peer an element arrives from is real: its network group comes
-from the TCP connection. Placing by the source bounds what one peer can
-fill to its allotment, however many addresses it invents, and filling more
-of the table means being more of the node's peers from more network
-groups. The claimed network group only picks a bucket within the
-allotment, as in the address manager's new table. Admission therefore
-cannot guarantee that the stored addresses are diverse, since their groups
-may be fiction; diversity is checked at pick time instead (R-7.3), where a
-lie costs one wasted SYN and nothing more.
+from the TCP connection. A cap per source bounds what one peer can plant,
+however many addresses or keys it invents, and lets it displace only its
+own entries; filling more of the table means being more of the node's
+peers from more network groups. The first draft placed entries by a keyed
+hash into buckets chosen by the source, as the address manager does for
+its persistent new table. For a table that lives two hours and is never
+stored, the plain cap gives the same bound with no secret and no placement
+function, and keeps the one rule that matters: nothing in the table is
+keyed by a value the announcer chooses. Admission cannot guarantee that
+the stored addresses are diverse, since their groups may be fiction;
+diversity is checked at pick time instead (R-7.3), where a lie costs one
+wasted SYN and nothing more.
 
-[^occupant]: Letting a newcomer displace a live entry would let a flood
-through one peer churn that peer's allotment continuously, and since every
-displaced and reinserted entry waits for a block again (R-7.2), a churned
-allotment never yields a pick. Keeping the occupant means a slot is held
-for at most `ENTRY_TTL`, and a flood merely fails to insert, which is also
-how the address manager treats collisions with entries that are not stale.
+[^random-eviction]: Three policies were weighed for a full source group.
+Refusing the newcomer protects resident entries, but then a peer that
+fills a group once and refreshes its entries every two hours holds it for
+good, and nothing honest learned through that peer is stored again.
+Evicting the oldest protects nothing: a flood of new entries empties the
+group of everything that arrived before it. Evicting at random degrades
+gracefully. Each insertion evicts an entry in proportion to how many the
+inserter already holds, so a flood mostly evicts itself, an honest
+newcomer always gets in, and an honest entry survives each insertion with
+probability 1 - 1/`SOURCE_CAP`. Refreshes evict nothing, so a group cannot
+be held by refreshing it: an honest newcomer evicts into it and the
+refresher must insert again, at the rate R-5.5 allows, to get back in.
+Under that rate an honest entry in a group whose inflow is dominated by
+an attacker still more often than not lives out its lifetime. At the
+table ceiling, evicting from the largest group lands on exactly the
+groups a flood inflates; honest groups are small.
+
+[^one-ticket]: The pair value is the selection signal, so a peer that
+plants many entries holds many tickets, and the best of a hundred draws
+beats the best of a few almost every round. Nothing can stop that at the
+ranking, since the ranking is what makes both sides agree. Taking at most
+one pick per source group per round caps what any one peer's entries can
+cost at one of the round's three picks, however many it planted; the
+other picks go to entries learned through other peers. The cap costs
+nothing in the honest case, where a node's sources are its eight or so
+outbound peers and the lowest three values rarely share one.
+
+[^rate-limit]: An honest peer originates at most a few elements an hour
+and forwards a bounded trickle of other nodes'. The rate is sized to the
+table rather than to the network: a peer's `SOURCE_CAP` entries turn over
+once per `ENTRY_TTL`, which is sixty-four an hour, and twice that leaves
+room for refreshes. Counting rejected elements means that a stream of
+invalid keys spends the sender's budget rather than the receiver's
+processor. Responses to the node's own `getaddr` are solicited and
+bounded by `SYNC_MAX`, so they are exempt, as solicited addresses are in
+the ordinary address rate limit.
+
+[^last-seen]: The first draft expired an entry at its announced `time`
+plus the lifetime, which trusted a field the announcer writes and, within
+the allowed skew, stretched an entry by ten minutes. Expiring from the
+local time of the last receipt trusts nothing the announcer wrote, and a
+refresh extends the lifetime as before. The announced `time` still gates
+relay (R-5.3), so a stale element stops spreading.
+
+[^reorg]: A reorganisation to a chain of the same height swaps the tip
+without advancing it. Nodes see such a swap at different times or not at
+all, so a round on it would rarely find both sides on the same block.
+Height advances in the same order everywhere.
 
 [^block-trigger]: A block is the one event every node observes within
 seconds of every other, with no clock involved. Header timestamps were
@@ -715,8 +756,13 @@ the header" has arrived, which brings clocks back. Rounds at fixed
 wall-clock intervals need clocks to agree within the window; most do, but
 a node with a wrong clock would punch alone forever without noticing.
 Using the arrival of the block costs variance in the start times, which
-the window absorbs, and the freshness bound stops a node that is catching
-up from holding one round per block it connects.
+the window absorbs. A node catching up after being offline holds a round
+for each block it connects; nobody else is evaluating those blocks, so
+those picks go unanswered, but the session cap bounds the waste to a few
+attempts and the node is in step again at the next block. The first draft
+added a freshness timer on header receipt to suppress such rounds; it
+needed a receipt time per header and could make two nodes disagree on
+whether a block was fresh, so the cap does that job instead.
 
 [^parent-rule]: The pair value is unpredictable only if the block did not
 exist when the key was chosen. Requiring the block to arrive after the
@@ -725,13 +771,16 @@ which is ordinary propagation variance, can grind keys against the known
 hash for that second, deliver the announcement, and still arrive first. A
 commodity machine tries roughly 300 000 keys per second, about a billion
 per hour, enough to land in the lowest three of a thousand with near
-certainty. Requiring the entry to predate the arrival of the block's
-*parent* puts a whole block interval, ten minutes on average and never
+certainty. Requiring the entry to predate the moment the node's tip reached the
+block's *parent* puts a whole block interval, ten minutes on average and never
 less than the propagation delay, between the latest possible key choice
 and the earliest knowledge of the hash. Only a miner who finds two blocks
 in a row and withholds both could grind, at a cost that dwarfs the prize.
 `received_at` is the node's own clock, so an announcer cannot backdate it.
-The same ordering, a public random value fixed only after the keys it is
+The first draft keyed the rule to the first receipt of the parent's
+header, which needs a receipt time per header; the time the tip reached
+the parent is recorded for rounds anyway and is never earlier, so the
+rule is at least as strict. The same ordering, a public random value fixed only after the keys it is
 combined with, is how Tor keeps onion-service directory positions from
 being chosen by an attacker[^beacon-precedent].
 
@@ -853,8 +902,13 @@ scope by design); a sealed reply channel over a relay (an opaque,
 unauthenticated flood channel); keeping old keys usable after rotation
 (see [^rotation]); one key per address family (see [^one-key]); a request
 message to pull table entries (replaced by R-5.7 on `getaddr`); a signature
-on announcements (above); a cache of a few dozen announcements without
-source bucketing (which any one peer could fill).
+on announcements (above); a cache of a few dozen announcements without a
+per-source bound (which any one peer could fill); hash-bucketed placement
+under a local secret as in the address manager, a freshness timer on
+header receipt, and a limit of one session per address per interval (all
+in draft 0.1.0; the first is covered by [^source-cap], the second by
+[^block-trigger], and the third was redundant with removal on pick and
+the per-group limit).
 
 ## Backward compatibility
 
@@ -876,57 +930,109 @@ experience shows which coordination works in practice.
 
 ## Security considerations
 
+The attack surface is the one an unauthenticated, relayed announcement
+always has: anyone can put any endpoint and any key in front of any node.
+The design does not try to tell honest elements from invented ones, since
+nothing in an element can be verified before the attempt. It bounds what
+invented elements can cost instead, and it hangs every bound off the one
+thing an attacker cannot invent: the connection an element arrived on.
+
+**Fake keys and fake addresses.** An attacker can generate elements
+without limit. Each costs the receiver one key parse and one ECDH on
+acceptance and one hash per round while stored, and buys the attacker a
+place in the table and a chance at a pick. Both are bounded by the
+attacker's connections, not by its elements:
+- a peer can plant at most `SOURCE_CAP` entries, however many keys or
+  addresses it invents (R-6.2), and can only ever displace its own
+  entries, never those learned through another peer;
+- a node processes at most `PUNCHKEY_PER_HOUR` elements from one peer,
+  counting rejected ones, so invalid keys spend the sender's budget rather
+  than the receiver's processor (R-5.5);
+- entries planted through one peer can take at most one of the round's
+  picks, however many there are and however low their pair values
+  (R-7.4), and none of them can be made to rank well on purpose, since
+  the pair value depends on a block that did not exist when the key was
+  chosen (R-7.2);
+- an entry costs the node at most one session's attempts per announcement
+  and is then dropped (R-7.6).
+
+The residual is proportional to the attacker's presence among the node's
+peers. A peer that fills its share of the table with fiction wastes at
+most one pick in three per round, and holds the hole-punch outbound slot
+for one window in those rounds where its best fake ranks first with the
+initiator role. An attacker in that position is already one of the node's
+outbound peers, with the influence over address, transaction, and block
+relay that comes with it.
+
+**Floods through honest peers.** An attacker that is not a peer of the
+victim reaches it only through relay, inside an honest peer's stream and
+in that peer's source group. Two things bound the damage. The honest
+relayer processes at most `PUNCHKEY_PER_HOUR` elements per connection, so
+dominating its stream takes many connections to it, and the attacker does
+not know which relayers are the victim's peers. And random eviction
+(R-6.2) means each inserted element evicts the attacker's own entries in
+proportion to how many it holds, so an honest entry in a group whose
+inflow is dominated by fiction still survives each insertion with
+probability 1 - 1/`SOURCE_CAP`, and an honest newcomer is always stored.
+Refreshes evict nothing, so a group cannot be held by refreshing it. At
+the table ceiling, eviction from the largest group falls on exactly the
+groups a flood inflates (R-6.3). A relayer that is itself the attacker can
+withhold instead of flooding, which the victim's other peers bound.
+
 **Reflection.** The only traffic sent to an unverified address is the
 connect attempts of a session: one pending `connect()` at a time, whose
 SYN the operating system sends about seven times over two minutes,
 re-opened at most seven times per session and only if the far side
-answers with resets; at most three sessions per round, six concurrent,
-one per address per ten minutes, four per network group per hour. An
-invented address is attempted once per announcement and then dropped.
-Across the network, an announcement that reaches every participant's
-table is attempted by each of them with probability of about
-`PICKS_PER_ROUND` over its table size per round, so a target receives on
-the order of a few SYNs per thousand participants per block.
+answers with resets. An element naming a third party makes each node that
+picks it send that burst once and drop the entry; a new key for the same
+address is a new entry and a new chance, but every node starts at most
+`GROUP_SESSIONS_PER_HOUR` sessions per hour into any one network group,
+whatever the keys. Endpoints must be routable and not reserved, local, the
+node's own, or on a bad port. Across the network, an element that reaches
+every participant is picked by each with probability of about
+`PICKS_PER_ROUND` over its table size per round, so a target sees a few
+SYNs per thousand participants per block; the hard ceiling is the
+per-group cap times the number of participants per hour, which for ten
+thousand participants is about eighty SYN packets a second into one
+network group, if every one of them held a fresh fake for it.
+
+**Starving a node of pairings.** A node's genuine entry in another table
+cannot be evicted by anyone who is not that table's peer for it, cannot be
+reset, since only a new (endpoint, key) combination gets a new
+`received_at` and the node alone announces its own key, and cannot be
+outranked on purpose. Replaying the genuine element refreshes it.
+Announcing the node's address under other keys creates separate entries
+that compete for picks like any other fiction and send the node a bounded
+number of SYNs, which it holds and drops (R-8.4). A node's own table can be
+polluted only through its peers, as above.
 
 **Grinding.** Pair values cannot be aimed at: the key must be in the
-victim's table before the victim sees the parent of the block whose hash
-enters the value (R-7.2), and `received_at` is the victim's own clock.
-Only a miner withholding two consecutive blocks could grind; see
-[^parent-rule]. The table secret (R-6.1) likewise makes placement
-unpredictable.
+victim's table before the victim's tip reached the parent of the block
+whose hash enters the value (R-7.2), and `received_at` is the victim's
+own clock. Only a miner withholding two consecutive blocks could grind;
+see [^parent-rule].
 
 **Sybil and eclipse through the extra slot.** The initiator's hole-punch
 outbound is one extra slot, excluded from anchors and diversity accounting
-(R-9.1), and its peer must pass outbound diversity (R-7.3). An attacker's
-chance of taking that slot in a round equals its share of the node's
-candidates, which the table bounds per source group: controlling one of
-the node's address-relaying peers yields at most 128 of 1024 slots. Every
-announced endpoint must then complete a BIP 324 handshake from the
-announced address, so the attacker needs real hosts in network groups the
-node does not already have. Nothing is grindable, so repeated
-announcements buy nothing beyond those slots.
-
-**Table flooding.** One peer can fill at most its allotment, however many
-addresses or keys it invents (R-6.3). A remote attacker flooding through
-honest peers lands in those peers' allotments at the ordinary address
-relay rate, cannot displace live entries (R-6.4), and gains picks only in
-proportion to the slots it holds. Each entry it plants costs the node at
-most one session's attempts per announcement.
-
-**Denial of pairing.** Replaying a node's genuine element only refreshes
-it (R-6.2). Announcing a node's address with a different key creates
-separate entries and does not touch the genuine one; attempts to that
-address from such entries are bounded as under reflection. An attacker
-cannot keep a victim's entry perpetually ineligible, since only a new
-(endpoint, key) combination gets a new `received_at`, and the victim alone
-announces its own key.
+(R-9.1), and its peer must pass outbound diversity (R-7.3). To take it an
+attacker needs a real host in a network group the node does not already
+have, must win a ranking it cannot influence, and gets at most one pick
+per round per peer it controls. Repeated announcements buy nothing beyond
+that.
 
 **Chain dependence.** A node that is eclipsed or starved of blocks holds
 no rounds and makes no attempts. An attacker who can delay a node's blocks
 can delay its rounds but cannot choose the pair values without mining. A
-node on a stale tip holds rounds for blocks nobody else evaluates, and its
-attempts go unanswered. A node with a wrong clock is unaffected, since no
-clock enters the protocol.
+node catching up after being offline holds rounds nobody else evaluates;
+the session cap bounds that to a few wasted attempts. A node with a wrong
+clock is unaffected, since no clock enters the protocol.
+
+**Resources.** The table holds at most `TABLE_MAX` entries of under a
+hundred bytes each. Sockets are bounded by `MAX_ACTIVE_SESSIONS` pending
+attempts and `HELD_MAX` held connections; a held connection is never read
+from or written to and is closed after `HOLD_MS`, so the punch-port
+listener exposes nothing to a scanner. A round costs one hash per
+eligible entry.
 
 **Lying peers.** A peer can report any address in `addr_recv`. Only
 agreement between two reporting peers in distinct network groups produces
@@ -980,6 +1086,17 @@ still apply. The vectors use documentation address ranges.
 
 ## Changelog
 
+* 0.2.0 (2026-10-16): the hash-bucketed table and its secret are replaced
+  by a cap per source group with random eviction inside a full group and
+  eviction from the largest group at the table ceiling; a per-peer element
+  rate that counts rejected elements; at most one pick per source group
+  per round; the per-address session interval and the header-receipt
+  freshness timer are removed; eligibility is keyed to the time the tip
+  reached the parent; rounds only on a height increase; expiry from the
+  local time of the last receipt; relay only of accepted elements and at
+  most once per `RELAY_TTL` per entry; security considerations rewritten
+  around flooding, reflection, and starvation with the bound each rule
+  gives.
 * 0.1.0 (2026-10-16): initial draft, from "option 6" in the Delving
   thread: announcements with short-lived keys over address relay, rounds
   triggered by block arrival, pair values from ECDH and the block hash,

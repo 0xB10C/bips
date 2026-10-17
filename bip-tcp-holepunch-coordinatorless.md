@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.3.0
+  Version: 0.3.1
   Requires: 155, 324, 434
 ```
 
@@ -118,8 +118,9 @@ systems.
 **Source group.** The network group of the peer an announcement arrived
 from, taken from that peer's TCP address.
 
-**Key.** The node's secp256k1 key pair for this protocol: a secret `p`
-and `P = p·G`, with `P` serialized as a 33-byte compressed point.
+**Key.** A secp256k1 key pair the node holds for this protocol, one per
+address family it announces: a secret `p` and `P = p·G`, with `P`
+serialized as a 33-byte compressed point.
 
 **Entry.** A stored announcement: its endpoint, its public key, the
 element's `time`, the local time the node first received that endpoint
@@ -203,20 +204,24 @@ endpoint), started by a pick (R-7.4).
 ### 4. Keys and the pair value
 
 - R-4.1 When it starts, a participating node generates a secp256k1 key
-  pair from fresh randomness: a uniformly random secret `p` in `[1, n-1]`
-  and `P = p·G`. The key MUST NOT be derived from or shared with any other
-  key and is used for nothing but this protocol.
-- R-4.2 A node has one current key, used for every address family it
-  announces.
-- R-4.3 The key MUST be replaced when an external address it was announced
-  with changes, so that a new address is never announced under a key that
-  was seen with an old one, and at least every `KEY_ROTATE_H` (24 h), at
-  a time not aligned across nodes[^rotation]. After replacement the node
-  uses the new key only, MAY discard the old secret, and SHOULD announce
+  pair from fresh randomness for each address family it may announce: a
+  uniformly random secret `p` in `[1, n-1]` and `P = p·G`. A key MUST NOT
+  be derived from or shared with any other key, including the node's key
+  for the other family, and is used for nothing but this protocol.
+- R-4.2 A node has one current key per address family. The IPv4 and IPv6
+  keys of one node are independent, and nothing in the protocol links
+  them[^key-per-family].
+- R-4.3 A family's key MUST be replaced when that family's external
+  address changes, so that a new address is never announced under a key
+  that was seen with an old one, and at least every `KEY_ROTATE_H`
+  (24 h), at a time not aligned across nodes and not aligned with the
+  node's other family[^rotation]. After replacement the node uses the new
+  key only, MAY discard the old secret, and SHOULD announce that family
   again promptly (R-5.4).
 - R-4.4 The **shared secret** between the node and an entry is `x`, the x
-  coordinate of `p · P_entry` as 32 bytes big-endian. The other node
-  computes `p_entry · P` and gets the same `x`. If the product is the
+  coordinate of `p · P_entry` as 32 bytes big-endian, where `p` is the
+  node's key for the entry's address family. The other node computes
+  `p_entry · P` with its own key for that family and gets the same `x`. If the product is the
   point at infinity the entry MUST be ignored.
 - R-4.5 The **pair value** of an entry for a block is
 
@@ -273,7 +278,7 @@ announcement. Valid `addr` lengths are 38 and 50 bytes.
   external address whose port is not one it would treat as a bad port
   itself, and a free hole-punch outbound slot (section 9) or a free
   inbound slot, counting slots reserved by sessions as
-  used[^both-announce]. The element carries the current key and
+  used[^both-announce]. The element carries the family's current key and
   `time = now`. It goes to every peer that sent the feature, at most once
   per `ANNOUNCE_INTERVAL` (30 min) per peer, and once more promptly after
   the key or the address changes. A node announces one element per family
@@ -284,8 +289,8 @@ announcement. Valid `addr` lengths are 38 and 50 bytes.
   hour are ignored, which is not by itself a protocol violation, and a
   node SHOULD NOT send a peer more than that[^rate-limit]. Elements also
   count as one address each against the general address rate limit.
-- R-5.6 A node ignores elements that carry its own public key or one of
-  its own external addresses.
+- R-5.6 A node ignores elements that carry one of its own public keys or
+  one of its own external addresses.
 
 ### 6. The table
 
@@ -433,7 +438,7 @@ value the announcer chooses[^source-cap].
 | I-9 | Punched connections use BIP 324 without v1 fallback; both nodes advertise `NODE_P2P_V2`. | Send a v1 `version` on a punched connection; assert close. |
 | I-10 | The node has an external address only while two reporting peers in different network groups agree and no second such set disagrees; it announces only with an external address, its current key, and a free slot of either kind; a pick reserves the slot its role needs. | One dissenting report: address kept. Two agreeing dissenters: address dropped, no announcement. Both slots taken: no announcement, no picks. |
 | I-11 | No source group exceeds `SOURCE_CAP` and the table never exceeds `TABLE_MAX`; a full group evicts at random within itself, a full table evicts from its largest group, a refresh evicts nothing; an entry learned through one peer is never displaced by another peer's elements; a re-received entry keeps `received_at`; a picked entry is removed. | Flood from one peer with distinct addresses and keys; count that peer's entries; check other peers' entries are untouched. Re-send a stored element; assert eligibility unchanged. |
-| I-12 | The key is replaced whenever an announced external address changes and at least every `KEY_ROTATE_H`; a new address is never announced under a key seen with an old one; pair values use the current key only. | Change the reported address; assert a new key is announced and the old one never with the new address. |
+| I-12 | Each family has its own key, replaced whenever that family's announced external address changes and at least every `KEY_ROTATE_H`, at a time independent of the other family's; a new address is never announced under a key seen with an old one; pair values use the current key of the entry's family only. | Change the reported IPv4 address; assert a new IPv4 key is announced, the IPv6 key is unchanged, and the old key never appears with the new address. |
 | I-13 | An entry takes part only in rounds for blocks whose parent the tip reached after the entry was first received; the pair value depends on that block's hash. | Insert an entry, connect one block: no attempt. Connect another: attempt. Change the block hash: different pick. |
 
 ### 11. Limits
@@ -486,6 +491,16 @@ else lets them do for an unreachable node. So a new address never
 appears under an old key. Rotating more often than that would hurt:
 every new key is a new entry in every table that waits a block before it
 can be picked (R-7.2), while picks of the old key go unanswered.
+
+[^key-per-family]: Nothing else in the P2P protocol links a node's IPv4
+and IPv6 addresses, and announcing both under one key would link them
+for everyone who collects announcements. So each family has its own key,
+and the two rotate at independent times, since two keys that always
+change together are linked by that alone. The cost is small: one more
+key to hold, one more pair value per dual-stack peer, and the chance
+that a pair is picked over both families in one round and ends up with
+two connections, one per family. That is rare and costs a slot on each
+side.
 
 [^coin-flip]: The initiator needs the single hole-punch outbound slot and
 the responder an inbound slot. A fixed rule such as "the smaller key
@@ -631,8 +646,9 @@ announcements (a flooder needs a handful of elements per victim, while
 an honest low-power node would pay on every one); attestation of the
 announced address by the relaying peer (a third party again); a pull
 message for table entries; keeping announcements in the address manager;
-keeping old keys usable after rotation; one key per address family; a
-table keyed by the announced address.
+keeping old keys usable after rotation; one key for both address
+families (dropped in 0.3.1, see [^key-per-family]); a table keyed by the
+announced address.
 
 ## Backward compatibility
 
@@ -738,9 +754,11 @@ learns which pairs connect: two public keys do not give the shared
 secret, and even the two nodes cannot know before the block arrives.
 What is public is participation: a home node's clearnet endpoint, under
 a key that identifies it for up to a day and is tied to one address
-(R-4.3), which is why taking part is opt-in. The fixed source port, the
-feature, and SYNs from the punch port shortly after each block tell
-peers and on-path observers that the node takes part.
+(R-4.3), which is why taking part is opt-in. A node's IPv4 and IPv6
+endpoints carry different keys, so the protocol does not link them
+(R-4.2). The fixed source port, the feature, and SYNs from the punch
+port shortly after each block tell peers and on-path observers that the
+node takes part.
 
 ## Reference implementation
 
@@ -766,6 +784,9 @@ checks in R-2.1, R-5.1, and R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.3.1 (2026-10-17): one key per address family instead of one per
+  node, rotated independently, so that a node's IPv4 and IPv6 endpoints
+  are not linked by the protocol.
 * 0.3.0 (2026-10-16): rewritten as a standalone document. Drafts 0.1.0
   and 0.2.0, which shared text with the coordinated draft, are in the
   repository history.

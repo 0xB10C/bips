@@ -314,7 +314,7 @@ def build():
     add_el_valid("IPv4 announcer, key A (38 bytes)", pk(IPV4_A, "A"), IPV4_A["port"])
     add_el_valid("IPv4 announcer, key B (38 bytes)", pk(IPV4_B, "B"), IPV4_B["port"])
     add_el_valid("IPv6 announcer, key C (50 bytes)", pk(IPV6_A, "C"), IPV6_A["port"])
-    add_el_valid("same key announced for both families (R-4.2)", pk(IPV6_A, "A"), IPV6_A["port"])
+    add_el_valid("IPv6 announcer, key B (50 bytes)", pk(IPV6_A, "B"), IPV6_A["port"])
 
     base = pk(IPV4_A, "A")
 

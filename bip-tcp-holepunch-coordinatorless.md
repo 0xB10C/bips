@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.4
+  Version: 0.4.5
   Requires: 155, 324, 434
 ```
 
@@ -19,10 +19,11 @@ to the other at about the same time and both NATs give connections from
 one local port a stable external port. This document lets nodes do that
 without anyone telling them whom to connect to or when.
 
-A node sends every outbound connection from one fixed local port, the
-*punch port*, and learns its external address from what peers echo back
-in `version`. It announces that address together with a short-lived
-public key to a few reachable nodes that act as *boards*. A board checks
+A node keeps one fixed local port for this protocol, the *punch port*,
+connects from it to a few reachable nodes that act as *boards*, and
+learns its external address from what the boards echo back in
+`version`. It announces that address together with a short-lived public
+key to those boards. A board checks
 that the announced address is the one it sees on the connection, keeps
 the announcement for as long as the connection lasts, and passes it to
 its other visitors; it never chooses a pair or a time. Every new block
@@ -99,8 +100,8 @@ without `time` and `services`:
 | `uint8[]`     | `addr`     | address bytes |
 | `uint16_be`   | `port`     | port, big-endian as in BIP 155 |
 
-**Punch port.** One local TCP port per address family, used for every
-outbound clearnet connection and for punching. It is chosen at random
+**Punch port.** One local TCP port per address family, used for board
+connections and for punching, and for nothing else. It is chosen at random
 from 49152 to 65535 when the node starts, skipping ports the
 implementation treats as bad, is configurable, and never changes while
 the node runs[^punch-port].
@@ -109,9 +110,10 @@ the node runs[^punch-port].
 `SO_REUSEADDR` and `SO_REUSEPORT` set before binding.
 
 **Report.** The `addr_recv` field of a peer's `version` message: the
-node's address and port as that peer sees them. Only reports on outbound
+node's address and port as that peer sees them. Only reports on
 connections made from a punch socket without a proxy count, and such
-peers are *reporting peers*. Boards are reporting peers.
+peers are *reporting peers*: the node's boards, and peers reached by
+punching.
 
 **External address.** For one address family, the endpoint that at least
 two current reporting peers in different network groups report, as long
@@ -160,11 +162,10 @@ endpoint), started by a pick (R-7.4).
 
 ### 1. Sockets
 
-- R-1.1 Every outbound connection to an `IPV4` or `IPV6` peer that is not
-  made through a proxy MUST be made from a punch socket of that family.
-  If the operating system refuses because the 4-tuple is still in use,
-  usually `TIME_WAIT` after a recent connection to the same peer, the node
-  MAY use an ephemeral port; that connection is not a reporting peer.
+- R-1.1 Board connections (R-5.2) and punch attempts MUST be made from a
+  punch socket of their family. Ordinary outbound connections are not
+  affected by this protocol: their source ports, selection, and
+  accounting stay as they are[^punch-port].
 - R-1.2 The node MUST listen on each punch port. A connection accepted
   there is a punched connection and nothing else.
 - R-1.3 Punch attempts are non-blocking connects from punch sockets. An
@@ -301,14 +302,20 @@ it[^time]. Valid `addr` lengths are 38 and 50 bytes.
 #### Visitors
 
 - R-5.2 A participant keeps `BOARDS` (2) board connections for each
-  address family it announces, to boards in distinct network groups,
+  address family it takes part in, to boards in distinct network groups,
   chosen uniformly at random from reachable addresses in its address
-  manager that advertise `NODE_HOLEPUNCH_BOARD`. It opens each from a
-  punch socket (R-1.1), so that the board observes its mapped endpoint.
-  It replaces a board connection `BOARD_ROTATE_H` (6 h) after opening it,
-  at a time not aligned across nodes, and whenever it closes[^standing].
-  A connection the board closes before serving anything, as it does when
-  it refuses a visitor (R-5.5), is replaced by one to a different board.
+  manager that advertise `NODE_HOLEPUNCH_BOARD` and that it is not
+  otherwise connected to. It opens each from a punch socket (R-1.1), so
+  that the board observes its mapped endpoint and reports it; the boards
+  are the reporting peers that R-2.2 needs. It replaces a board
+  connection `BOARD_ROTATE_H` (6 h) after opening it, at a time not
+  aligned across nodes, and whenever it closes[^standing]. It also
+  replaces one of them when the boards' reports disagree (R-2.3), and
+  replaces a connection the board closes before serving anything, as a
+  board does when it refuses a visitor (R-5.5), or that yields no
+  acknowledgement (R-5.3). After `BOARD_FAIL_MAX` (4) replacements in a
+  row for one family without an external address or an acknowledgement,
+  it stops for `BOARD_BACKOFF` (1 h)[^backoff].
 - R-5.3 On a board connection, after the feature exchange, the visitor
   sends one element: its external address for the connection's family
   (R-2.2) and that family's key. It sends a new element on that
@@ -491,9 +498,9 @@ board names an endpoint that board saw connect[^source-cap].
   validation, usually seconds. Because both attempts stay pending, the two
   SYNs only have to cross once anywhere in the overlap of the two windows;
   the first SYN to reach a NAT that has no mapping yet is dropped and
-  retransmitted. No clock is involved. R-1.1 and the board connections
-  keep the mapping alive between sessions, and the pending attempt keeps
-  it alive towards the peer.
+  retransmitted. No clock is involved. The board connections keep the
+  mapping alive between sessions, and the pending attempt keeps it alive
+  towards the peer.
 
 ### 9. Slots
 
@@ -512,7 +519,7 @@ board names an endpoint that board saw connect[^source-cap].
 |----|-----------|------------|
 | I-1 | Each session has exactly one initiator, given by the pair value; it sends the first bytes (BIP 324 key, then `version`), and the responder sends nothing before receiving BIP 324 bytes. | Two nodes with known keys and a chosen block; capture first bytes; swap in a block with the other role bit. |
 | I-2 | A session is keyed by (punch port, peer endpoint) and has at most one connection, whose remote endpoint equals the entry's endpoint. An accepted socket that matches no session is held untouched for at most `HOLD_MS`, then closed unless a session for its endpoint started; at most `HELD_MAX` are held. | Connect to the punch port unexpectedly; assert silence and closure after `HOLD_MS`. Connect, then start a session for that endpoint; assert it uses the held socket. |
-| I-3 | Every non-proxied clearnet outbound connection, every board connection, every punch attempt, and the listener of a family share the punch port, except connections that fell back under R-1.1, which do not report. | Inspect local ports of all sockets. |
+| I-3 | Every board connection, every punch attempt, and the listener of a family share the punch port; ordinary outbound connections do not use it. | Inspect local ports of all sockets. |
 | I-4 | SYNs go only to endpoints of entries picked in a round: routable, not local, not the node's own address, same family, not a bad port; one attempt at a time; at most seven per session. | Feed elements with bad endpoints; count SYNs with a socket mock. |
 | I-5 | Per round at most `PICKS_PER_ROUND` sessions start, at most one per source group and one per network group; at most `MAX_ACTIVE_SESSIONS` exist; at most `GROUP_SESSIONS_PER_HOUR` start per network group per hour. | Serve a table from one board and from several; connect blocks; count sessions per source and per group. |
 | I-6 | Every session ends within `WINDOW_MS + GRACE_MS` in success or failure, releasing every socket but the connection and the reserved slot. | Drive sessions to both outcomes; compare socket counts. |
@@ -539,6 +546,7 @@ board names an endpoint that board saw connect[^source-cap].
 | `GROUP_SESSIONS_PER_HOUR` | 4 | R-7.3 |
 | `BOARDS` | 2 per announced family, in distinct network groups | R-5.2 |
 | `BOARD_ROTATE_H` | 6 h | R-5.2 |
+| `BOARD_FAIL_MAX` / `BOARD_BACKOFF` | 4 / 1 h | R-5.2 |
 | `BOARD_VISITORS_MAX` / `BOARD_PER_GROUP` / `BOARD_IP_CAP` | 32 / 4 / 1 | R-5.5, R-5.7 |
 | `BOARD_GRACE` | 10 min | R-5.7 |
 | `BOARD_REFRESH` | 30 min | R-5.8 |
@@ -597,14 +605,24 @@ it on the connection. The bit is experimental until the protocol is
 assigned a number; implementations without the bit can fall back to
 trying addresses and remembering which ones answered with `BOARD`.
 
-[^punch-port]: One port for every outbound connection means every peer
-reports the same mapping, every outbound connection keeps that mapping
-alive, and no probe connections are needed. The port is random rather
-than fixed because a port-preserving NAT shows the local port to the
-world, so a fixed number would mark the node's traffic to any observer,
-and because two nodes behind one NAT would otherwise ask for the same
-port. Peers never need to know it: they see only the mapped port, and
-the node learns that from their reports.
+[^punch-port]: Board connections are made from the punch port so that
+the boards see the mapping others will punch to, report it, and keep it
+alive for as long as they stay connected; nothing else has to use the
+port. Binding every outbound connection to it instead would give more
+reporters, but it would change the socket behaviour of connections this
+protocol has no business touching, and it would show every peer a fixed
+source port. The port is random rather than fixed because a
+port-preserving NAT shows the local port to the world, so a fixed number
+would mark the node's traffic to any observer, and because two nodes
+behind one NAT would otherwise ask for the same port. Boards never need
+to know it: they see only the mapped port, and the node learns that from
+their reports.
+
+[^backoff]: A node whose mapping differs per destination fails
+verification at every board and would otherwise hop from board to board
+for good, costing each a handshake. Two reporters in distinct groups
+usually catch such a mapping before the first announcement, but not
+always, so repeated failures are treated as the signal they are.
 
 [^min-version]: Taking the lower version lets an upgrade spread one node
 at a time. Old nodes will read this field the way it is defined now, so
@@ -824,8 +842,11 @@ with a revisit schedule, and replication of entries between boards,
 which would be relay again (see [^standing]); a threshold instead of a
 ranking; proof of work on keys (it prices fiction at a few dozen cores
 and does nothing a board does not do better); attestation of addresses
-by relaying peers; keeping announcements in the address manager; keeping
-old keys usable after rotation; one key for both address families
+by relaying peers; keeping announcements in the address manager; binding every outbound
+connection to the punch port (see [^punch-port]); a proof of the
+announcement key on the punched connection, which with verified
+endpoints would mostly reject real connections that a lying board had
+mislabelled; keeping old keys usable after rotation; one key for both address families
 (see [^key-per-family]); a table keyed by the announced address.
 
 ## Backward compatibility
@@ -835,8 +856,9 @@ message is ignored per BIP 434, an unknown service bit is ignored,
 `PUNCHKEY` elements carry an unknown network ID and are skipped by
 BIP 155 receivers, and they are only ever sent on board connections,
 which only exist between nodes that both signalled support. Nodes
-announcing a protocol version below 70017 are not sent the feature. The
-fixed source port is visible to peers only as a non-ephemeral port.
+announcing a protocol version below 70017 are not sent the feature.
+Ordinary connections are untouched; only boards and punched peers ever
+see the punch port.
 
 ## Security considerations
 
@@ -924,11 +946,11 @@ which are never read or written and are closed after `HOLD_MS`; at most
 `BOARD_VISITORS_MAX` board connections at a board; one hash per eligible
 entry per round.
 
-**Reports.** A peer, including a board, can report any address. Only two
-reporting peers in different network groups make an external address,
-and a single dissenter changes nothing (R-2.2); boards in distinct
-groups are two such reporters. A wrong external address makes the node
-announce something its board will not verify, so nothing is stored.
+**Reports.** A board can report any address. Only two reporting peers
+in different network groups make an external address, and a single
+dissenter changes nothing (R-2.2); a node's boards are in distinct
+groups for that reason. Two lying boards that agree on a false address
+only make the node announce something honest boards will not verify.
 
 **Privacy.** No announcement names a peer, no board can compute a pair
 value, and nobody but the two nodes learns which pairs connect. A board
@@ -939,9 +961,10 @@ hidden as before. What is public is participation: a home node's
 clearnet endpoint, under a key that identifies it for up to a day and is
 tied to one address (R-4.3), which is why taking part is opt-in. A
 node's IPv4 and IPv6 endpoints carry different keys, so the protocol
-does not link them (R-4.2). The fixed source port, the feature, and SYNs
-from the punch port shortly after each block tell peers and on-path
-observers that the node takes part.
+does not link them (R-4.2). Ordinary peers see nothing of this protocol;
+only boards, punched peers, and on-path observers see the punch port,
+and SYNs from it shortly after each block mark the attempts to anyone on
+the path.
 
 ## Reference implementation
 
@@ -968,6 +991,11 @@ R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.5 (2026-10-17): ordinary outbound connections no longer use the
+  punch port; boards and punched peers are the reporters; a visitor
+  avoids boards it is otherwise connected to, replaces a board whose
+  report disagrees, and backs off after repeated failures; the
+  connection proof recorded as not taken.
 * 0.4.4 (2026-10-17): `time` carries no meaning and its window check is
   gone; a board answers an element with its live entries including the
   visitor's own, which acknowledges the registration; entries in their

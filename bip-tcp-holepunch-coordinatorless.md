@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.0
+  Version: 0.4.1
   Requires: 155, 324, 434
 ```
 
@@ -60,8 +60,8 @@ moment from the next block, which every node sees within seconds of
 every other, and the address from a board: a reachable node that holds
 announcements, checks each one against the connection it came in on,
 and otherwise does nothing. Ordinary address relay was considered for
-the addresses and rejected, because anyone can relay any address and
-nobody can check one; a board can[^boards].
+the addresses and rejected[^why-not-relay]; a board can check what relay
+cannot[^boards].
 
 Connections made this way are extra, best-effort connections for nodes
 that have none to offer today. Nothing about ordinary connections
@@ -544,23 +544,23 @@ environments and no NAT at all on IPv6. Measurements of libp2p's DCUtR,
 which does TCP simultaneous open with a relay as coordinator, report
 about 70% success over millions of attempts.
 
-[^boards]: Earlier drafts spread announcements by ordinary address
-relay. Nothing in a relayed element can be checked, so an attacker who
-injects invented elements at a few dozen points lets honest relay carry
-them everywhere, and every table ends up as much fiction as the attacker
-can afford: about 240 live fakes per injecting connection. Two nodes
-also only paired if relay had happened to deliver each to the other,
-which depends on how far announcements spread and fails as the square
-of that. A board fixes both. It can check an announcement against the
-one thing an announcer cannot fake, the connection it arrives on, so an
-honest board holds only endpoints that really connected, and a lying
-board is just one more peer bounded by the per-source rules. And two
-visitors of one board hold each other by construction. Relaying
-verified elements one hop onward was considered and rejected: the
-relayers would be the announcer's long-lived peers, and receiving an
-element from a relayer would reveal that peering to everyone it reached.
-A board connection is purpose-made and separate from the node's peers,
-so it reveals nothing about them.
+[^why-not-relay]: Three reasons, in the order they were found. Nothing in
+a relayed element can be checked, so an attacker who injects invented
+elements at a few dozen points lets honest relay carry them everywhere,
+and every table ends up holding as much fiction as the attacker can
+afford, about 240 live fakes per injecting connection. Two nodes only
+pair if relay happened to deliver each to the other, which depends on
+how far announcements spread and fails as the square of that. And the
+one repair that keeps relay, forwarding only elements whose endpoint the
+relayer saw connect, makes the relayers the announcer's long-lived peers
+and tells everyone downstream who they are.
+
+[^boards]: A board can check an announcement against the one thing an
+announcer cannot fake, the connection it arrives on, so an honest board
+holds only endpoints that really connected, and a lying board is just
+one more peer bounded by the per-source rules. Two visitors of one board
+hold each other by construction. And a board connection is purpose-made
+and separate from the node's peers, so it reveals nothing about them.
 
 [^standing]: A board can only tell a visitor what it holds while the
 visitor is connected. With short visits, the earlier of two visitors
@@ -789,7 +789,7 @@ refresh and the next block. Retrying would only send more SYNs to the
 same address.
 
 **Not taken.** Ordinary address relay for announcements, and relay of
-verified announcements one hop onward (see [^boards]); short board visits
+verified announcements one hop onward (see [^why-not-relay]); short board visits
 with a revisit schedule, and replication of entries between boards,
 which would be relay again (see [^standing]); a threshold instead of a
 ranking; proof of work on keys (it prices fiction at a few dozen cores
@@ -939,6 +939,8 @@ R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.1 (2026-10-17): the reasons against address relay get their own
+  footnote, cited from the motivation.
 * 0.4.0 (2026-10-17): boards replace address relay: announcements go
   over standing, limited-purpose connections to reachable nodes that
   verify each endpoint against the connection and push entries to their

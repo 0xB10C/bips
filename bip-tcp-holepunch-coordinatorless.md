@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.2
+  Version: 0.4.3
   Requires: 155, 324, 434
 ```
 
@@ -52,9 +52,9 @@ usually means no NAT and only a stateful firewall, which the same
 procedure passes[^numbers].
 
 Hole punching needs two things: each node must know the other's external
-address and port, and both must connect at about the same moment. Every
-design so far takes both from a coordinator, a third node or a Tor
-service that introduces the two. The coordinator learns who connects to
+address and port, and both must connect at about the same moment. Other
+designs take both from a coordinator, a third node or a Tor service that
+introduces the two. The coordinator learns who connects to
 whom, can refuse, and is one more thing to run. This document takes the
 moment from the next block, which every node sees within seconds of
 every other, and the address from a board: a reachable node that holds
@@ -542,14 +542,15 @@ board names an endpoint that board saw connect[^source-cap].
 
 ## Rationale
 
-[^numbers]: A survey among developers in the discussion thread found
+[^numbers]: A survey among developers, posted in the discussion linked
+in the preamble, found
 endpoint-independent mapping in about two thirds of home IPv4
 environments and no NAT at all on IPv6. Measurements of libp2p's DCUtR,
 which does TCP simultaneous open with a relay as coordinator, report
 about 70% success over millions of attempts.
 
-[^why-not-relay]: Three reasons, in the order they were found. Nothing in
-a relayed element can be checked, so an attacker who injects invented
+[^why-not-relay]: Three reasons. Nothing in a relayed element can be
+checked, so an attacker who injects invented
 elements at a few dozen points lets honest relay carry them everywhere,
 and every table ends up holding as much fiction as the attacker can
 afford, about 240 live fakes per injecting connection. Two nodes only
@@ -813,11 +814,6 @@ which only exist between nodes that both signalled support. Nodes
 announcing a protocol version below 70017 are not sent the feature. The
 fixed source port is visible to peers only as a non-ephemeral port.
 
-A coordinated variant of TCP hole punching is specified in a separate
-draft (`bip-tcp-holepunch.md`). The two are alternatives and use
-distinct network IDs and feature identifiers so that both can be tried;
-one is expected to remain.
-
 ## Security considerations
 
 Anyone can claim any endpoint and any key. The design accepts a claim
@@ -944,6 +940,8 @@ R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.3 (2026-10-17): the rationale is made self-contained and the
+  reference to another draft removed.
 * 0.4.2 (2026-10-17): one entry and one connection per address at a
   board; boards chosen uniformly at random; a refused visitor moves to
   another board, so two honest nodes behind one NAT rarely share one.
@@ -960,6 +958,4 @@ R-7.3 still apply to real elements.
 * 0.3.1 (2026-10-17): one key per address family instead of one per
   node, rotated independently, so that a node's IPv4 and IPv6 endpoints
   are not linked by the protocol.
-* 0.3.0 (2026-10-16): rewritten as a standalone document. Drafts 0.1.0
-  and 0.2.0, which shared text with the coordinated draft, are in the
-  repository history.
+* 0.3.0 (2026-10-16): full rewrite.

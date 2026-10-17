@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.3
+  Version: 0.4.4
   Requires: 155, 324, 434
 ```
 
@@ -285,18 +285,18 @@ This document reserves BIP 155 network ID `0x09`, enumeration
 | `uint8[]`   | `addr`   | the announcer's external address, 4 or 16 bytes |
 | `uint8[33]` | `pubkey` | the announcer's current key for that family, compressed |
 
-The element's `port` is the external port, `services` the announcer's
-services (MUST include `NODE_P2P_V2`), and `time` the time of the
-announcement. Valid `addr` lengths are 38 and 50 bytes.
+The element's `port` is the external port and `services` the announcer's
+services (MUST include `NODE_P2P_V2`). The `time` field carries no
+meaning in this protocol: a visitor writes the current time, a board
+writes the time it received the element, and receivers do not act on
+it[^time]. Valid `addr` lengths are 38 and 50 bytes.
 
 - R-5.1 A receiver MUST reject an element with an invalid length, a `net`
   other than `IPV4` or `IPV6`, an `addr` that is not globally routable, a
   `port` of 0, a `pubkey` that is not a valid compressed point (prefix
   other than `0x02` or `0x03`, x coordinate not below the field size, or
-  x not on the curve), `services` without `NODE_P2P_V2`, or a `time`
-  outside `now - ENTRY_TTL < time <= now + FUTURE_SKEW` (1 h and 10 min).
-  A rejected element is ignored; rejection alone is no reason to
-  disconnect.
+  x not on the curve), or `services` without `NODE_P2P_V2`. A rejected
+  element is ignored; rejection alone is no reason to disconnect.
 
 #### Visitors
 
@@ -311,13 +311,16 @@ announcement. Valid `addr` lengths are 38 and 50 bytes.
   it refuses a visitor (R-5.5), is replaced by one to a different board.
 - R-5.3 On a board connection, after the feature exchange, the visitor
   sends one element: its external address for the connection's family
-  (R-2.2) and that family's key, with `time = now`. It sends a new element
-  on that connection whenever the key or the external address changes,
-  and nothing else about itself. A visitor announces only while it has a
-  free hole-punch outbound slot (section 9) or a free inbound slot,
-  counting slots reserved by sessions as used; with neither free it
-  closes its board connections and reopens them when a slot
-  frees[^both-announce].
+  (R-2.2) and that family's key. It sends a new element on that
+  connection whenever the key or the external address changes, and
+  nothing else about itself. The board answers every element with its
+  live entries (R-5.8); if that answer does not contain the visitor's own
+  entry, the board did not store it, usually because it saw a different
+  endpoint, and the visitor replaces the connection with one to a
+  different board[^ack]. A visitor announces only while it has a free
+  hole-punch outbound slot (section 9) or a free inbound slot, counting
+  slots reserved by sessions as used; with neither free it closes its
+  board connections and reopens them when a slot frees[^both-announce].
 - R-5.4 Elements a board sends on a board connection go to the table of
   section 6 with the board's network group as the source group. A
   visitor MUST NOT forward elements to anyone.
@@ -336,20 +339,24 @@ announcement. Valid `addr` lengths are 38 and 50 bytes.
   if it passes R-5.1 and its `net`, `addr`, and `port` equal the remote
   endpoint of the board connection it arrived on. Any other element is
   ignored. A board holds one entry per board connection; a later element
-  on the same connection replaces it.
+  on the same connection replaces it. The entry's `time` is the time the
+  board received the element.
 - R-5.7 **Lifetime.** An entry lives while its connection is open and
   `BOARD_GRACE` (10 min) after it closes. A board holds at most
   `BOARD_IP_CAP` (1) entry per address, counting an entry in its grace
   period; a verified element from an address whose entry is in its grace
   period replaces that entry[^ip-cap]. Since R-5.5 admits one connection
   per address, an entry with an open connection is never displaced.
-- R-5.8 **Serving.** When a board connection is established, the board
-  sends the visitor every live entry except the visitor's own. When it
-  stores or replaces an entry, it sends that element to every other
-  visitor. Every `BOARD_REFRESH` (30 min) it sends every live entry to
-  every visitor again[^refresh]. Elements are sent in `addrv2` messages
-  with `time` preserved. A board MUST NOT send `PUNCHKEY` elements on any
-  other connection and MUST NOT pass elements between boards.
+- R-5.8 **Serving.** In answer to an element from a visitor, the board
+  sends that visitor every entry whose connection is open, including the
+  visitor's own entry if it stored it. When it stores or replaces an
+  entry, it sends that element to every other visitor. Every
+  `BOARD_REFRESH` (30 min) it sends every entry whose connection is open
+  to every visitor again, each visitor's own included[^refresh]. Entries
+  in their grace period are kept for the per-address cap only and are not
+  sent. Elements are sent in `addrv2` messages with the `time` the board
+  recorded. A board MUST NOT send `PUNCHKEY` elements on any other
+  connection and MUST NOT pass elements between boards.
 - R-5.9 A board MUST NOT add `PUNCHKEY` elements to its address manager,
   persist them, or include them in `getaddr` responses. Its entries exist
   only in memory and only for connections of its current run.
@@ -359,8 +366,10 @@ announcement. Valid `addr` lengths are 38 and 50 bytes.
   in that hour are ignored, which is not by itself a protocol violation,
   and a node SHOULD NOT send a peer more than that[^rate-limit]. Elements
   also count as one address each against the general address rate limit.
-- R-5.11 A node ignores elements that carry one of its own public keys or
-  one of its own external addresses.
+- R-5.11 A node does not store elements that carry one of its own public
+  keys or one of its own external addresses. On a board connection, its
+  own entry in the board's answer is the acknowledgement of R-5.3, nothing
+  more.
 
 ### 6. The table
 
@@ -514,7 +523,7 @@ board names an endpoint that board saw connect[^source-cap].
 | I-11 | No source group exceeds `SOURCE_CAP` and the table never exceeds `TABLE_MAX`; a full group evicts at random within itself, a full table evicts from its largest group, a refresh evicts nothing; an entry from one board is never displaced by another board's elements; a re-received entry keeps `received_at`; a picked entry is removed. | Serve many entries from one board; count that board's entries; check other boards' entries are untouched. Re-send a stored element; assert eligibility unchanged. |
 | I-12 | Each family has its own key, replaced whenever that family's announced external address changes and at least every `KEY_ROTATE_H`, at a time independent of the other family's; a new address is never announced under a key seen with an old one; pair values use the current key of the entry's family only. | Change the reported IPv4 address; assert a new IPv4 key is announced, the IPv6 key is unchanged, and the old key never appears with the new address. |
 | I-13 | An entry takes part only in rounds for blocks whose parent the tip reached after the entry was first received; the pair value depends on that block's hash and on both endpoints. | Insert an entry, connect one block: no attempt. Connect another: attempt. Change the block hash or either endpoint: different value. |
-| I-14 | A board stores only elements whose endpoint it observed on the connection they arrived on, one per connection, for the connection's lifetime plus `BOARD_GRACE`; it holds at most `BOARD_VISITORS_MAX` visitors, `BOARD_PER_GROUP` per network group, and `BOARD_IP_CAP` entries per address; it sends entries only to its visitors. | Announce an endpoint other than the connection's: assert not stored. Connect many times from one address and from one group: count. Disconnect: assert removal after `BOARD_GRACE`. |
+| I-14 | A board stores only elements whose endpoint it observed on the connection they arrived on, one per connection, for the connection's lifetime plus `BOARD_GRACE`; it holds at most `BOARD_VISITORS_MAX` visitors, `BOARD_PER_GROUP` per network group, and `BOARD_IP_CAP` entries per address; it sends entries only to its visitors, and its answer to a visitor's element contains the visitor's own entry exactly when it stored it. | Announce an endpoint other than the connection's: assert not stored and absent from the answer. Connect many times from one address and from one group: count. Disconnect: assert removal after `BOARD_GRACE`. |
 
 ### 11. Limits
 
@@ -536,7 +545,7 @@ board names an endpoint that board saw connect[^source-cap].
 | `PUNCHKEY_PER_HOUR` | 240 | R-5.10 |
 | `SOURCE_CAP` | 64 | R-6.2 |
 | `TABLE_MAX` | 1024 | R-6.3 |
-| `ENTRY_TTL` / `FUTURE_SKEW` | 1 h / 10 min | R-5.1, R-6.4 |
+| `ENTRY_TTL` | 1 h | R-6.4 |
 | `KEY_ROTATE_H` | 24 h | R-4.3 |
 | `HP_OUTBOUND_MAX` | 1 | R-9.1 |
 
@@ -653,6 +662,21 @@ they do, the second is refused and picks another, which is bad luck
 rather than a failure. A node whose mapped port changed arrives as a new
 key on a new connection, since the key is tied to the address (R-4.3),
 and replaces its own stale entry, which is in its grace period by then.
+
+[^time]: Every address element carries a time, so the field has to hold
+something, but nothing here depends on it: a board checks an entry
+against its connection and keeps it while the connection lasts, and a
+visitor expires entries by when it last received them. The board writes
+the time it received the element so that the field says something true;
+a receiver may show it and must not act on it.
+
+[^ack]: The visitor cannot see whether the board stored its element,
+and a board that saw a different endpoint, which happens when the
+visitor's mapping is not the same towards every peer, would silently
+hold nothing for it. Answering with the live list, the visitor's own
+entry included, turns the list every visitor needs anyway into the
+acknowledgement, with no extra message. The refresh repeats it, so a
+visitor also notices if it has dropped off.
 
 [^refresh]: Address messages have no way to withdraw an address, so a
 visitor that leaves a board would linger in every table until it
@@ -877,7 +901,11 @@ lacks, a ranking the attacker cannot influence, and at most one pick per
 round per board the attacker controls. On the responder side, unreachable
 nodes become reachable to anyone with a real host on the same board;
 those are inbound connections with inbound treatment, and the per-group
-caps bound how many one attacker can hold.
+caps bound how many one attacker can hold. Boards are chosen from the
+address manager, so poisoning it gets an attacker's boards chosen in
+proportion to its share, as in any eclipse attempt; the address manager's
+own defences bound that, and two boards per family in distinct groups
+mean both must be the attacker's.
 
 **Board exhaustion.** A board's visitor pool is separate from its inbound
 limit, small, and capped per network group and per address, so filling
@@ -940,6 +968,11 @@ R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.4 (2026-10-17): `time` carries no meaning and its window check is
+  gone; a board answers an element with its live entries including the
+  visitor's own, which acknowledges the registration; entries in their
+  grace period are no longer served; note on board choice and the
+  address manager.
 * 0.4.3 (2026-10-17): the rationale is made self-contained and the
   reference to another draft removed.
 * 0.4.2 (2026-10-17): one entry and one connection per address at a

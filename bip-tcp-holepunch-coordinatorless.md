@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.1
+  Version: 0.4.2
   Requires: 155, 324, 434
 ```
 
@@ -302,11 +302,13 @@ announcement. Valid `addr` lengths are 38 and 50 bytes.
 
 - R-5.2 A participant keeps `BOARDS` (2) board connections for each
   address family it announces, to boards in distinct network groups,
-  chosen from reachable addresses in its address manager that advertise
-  `NODE_HOLEPUNCH_BOARD`. It opens each from a punch socket (R-1.1), so
-  that the board observes its mapped endpoint. It replaces a board
-  connection `BOARD_ROTATE_H` (6 h) after opening it, at a time not
-  aligned across nodes, and whenever it closes[^standing].
+  chosen uniformly at random from reachable addresses in its address
+  manager that advertise `NODE_HOLEPUNCH_BOARD`. It opens each from a
+  punch socket (R-1.1), so that the board observes its mapped endpoint.
+  It replaces a board connection `BOARD_ROTATE_H` (6 h) after opening it,
+  at a time not aligned across nodes, and whenever it closes[^standing].
+  A connection the board closes before serving anything, as it does when
+  it refuses a visitor (R-5.5), is replaced by one to a different board.
 - R-5.3 On a board connection, after the feature exchange, the visitor
   sends one element: its external address for the connection's family
   (R-2.2) and that family's key, with `time = now`. It sends a new element
@@ -325,10 +327,11 @@ announcement. Valid `addr` lengths are 38 and 50 bytes.
 - R-5.5 A node that sets `BOARD` accepts board connections into a pool of
   at most `BOARD_VISITORS_MAX` (32), kept apart from its ordinary inbound
   limit, with at most `BOARD_PER_GROUP` (4) visitors from one network
-  group and `BOARD_IP_CAP` (2) from one address. When the pool is full, a
-  board MAY close the longest-connected visitor from the most represented
-  network group to admit one from a less represented group; otherwise it
-  closes the new connection after the handshake.
+  group and `BOARD_IP_CAP` (1) from one address. A connection beyond any
+  of these limits is closed after the handshake without being served
+  anything, except that when the pool is full a board MAY instead close
+  the longest-connected visitor from the most represented network group
+  to admit one from a less represented group.
 - R-5.6 **Verification.** A board stores an element from a visitor only
   if it passes R-5.1 and its `net`, `addr`, and `port` equal the remote
   endpoint of the board connection it arrived on. Any other element is
@@ -336,9 +339,10 @@ announcement. Valid `addr` lengths are 38 and 50 bytes.
   on the same connection replaces it.
 - R-5.7 **Lifetime.** An entry lives while its connection is open and
   `BOARD_GRACE` (10 min) after it closes. A board holds at most
-  `BOARD_IP_CAP` (2) entries per address, counting entries in their grace
-  period; a verified element from an address at its cap replaces the
-  entry of that address with the oldest `last_seen`[^ip-cap].
+  `BOARD_IP_CAP` (1) entry per address, counting an entry in its grace
+  period; a verified element from an address whose entry is in its grace
+  period replaces that entry[^ip-cap]. Since R-5.5 admits one connection
+  per address, an entry with an open connection is never displaced.
 - R-5.8 **Serving.** When a board connection is established, the board
   sends the visitor every live entry except the visitor's own. When it
   stores or replaces an entry, it sends that element to every other
@@ -526,7 +530,7 @@ board names an endpoint that board saw connect[^source-cap].
 | `GROUP_SESSIONS_PER_HOUR` | 4 | R-7.3 |
 | `BOARDS` | 2 per announced family, in distinct network groups | R-5.2 |
 | `BOARD_ROTATE_H` | 6 h | R-5.2 |
-| `BOARD_VISITORS_MAX` / `BOARD_PER_GROUP` / `BOARD_IP_CAP` | 32 / 4 / 2 | R-5.5, R-5.7 |
+| `BOARD_VISITORS_MAX` / `BOARD_PER_GROUP` / `BOARD_IP_CAP` | 32 / 4 / 1 | R-5.5, R-5.7 |
 | `BOARD_GRACE` | 10 min | R-5.7 |
 | `BOARD_REFRESH` | 30 min | R-5.8 |
 | `PUNCHKEY_PER_HOUR` | 240 | R-5.10 |
@@ -640,13 +644,14 @@ leaves its boards and its entries lapse.
 
 [^ip-cap]: A board can bound entries per address because it has seen
 every entry's address connect; nobody can plant an entry for an address
-they do not hold, so the cap cannot be used to starve anyone. One per
-address would be simplest, but two honest nodes behind one home NAT
-share an address and would knock each other out, so the cap is two. An
-address whose node changed its mapped port arrives as a new key on a new
-connection, since the key is tied to the address (R-4.3), and replaces
-the stale entry under the cap; a spammer opening connections from one
-address on many ports gets two entries, however many ports it uses.
+they do not hold, so the cap cannot be used to starve anyone, and one
+per address makes a spammer's many ports worth exactly one entry. Two
+honest nodes behind one home NAT share an address, but each picks its
+boards at random among all boards, so they rarely pick the same one; if
+they do, the second is refused and picks another, which is bad luck
+rather than a failure. A node whose mapped port changed arrives as a new
+key on a new connection, since the key is tied to the address (R-4.3),
+and replaces its own stale entry, which is in its grace period by then.
 
 [^refresh]: Address messages have no way to withdraw an address, so a
 visitor that leaves a board would linger in every table until it
@@ -822,7 +827,7 @@ is the one thing an attacker cannot fake.
 
 **Invented addresses.** An honest board stores only endpoints it saw
 connect, so fiction cannot pass through it. To fill a board an attacker
-needs real addresses: two entries per address, four visitors per
+needs real addresses: one entry per address, four visitors per
 network group, and the pool is full at thirty-two, after which honest
 visitors go elsewhere. Those entries are real hosts, so when picked they
 complete a connection and are sybil peers rather than wasted SYNs, and
@@ -939,6 +944,9 @@ R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.2 (2026-10-17): one entry and one connection per address at a
+  board; boards chosen uniformly at random; a refused visitor moves to
+  another board, so two honest nodes behind one NAT rarely share one.
 * 0.4.1 (2026-10-17): the reasons against address relay get their own
   footnote, cited from the motivation.
 * 0.4.0 (2026-10-17): boards replace address relay: announcements go

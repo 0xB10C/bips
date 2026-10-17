@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT OR BSD-2-Clause
 """Generate and verify test vectors for the coordinator-less TCP hole punching
-BIP draft (v0.3).
+BIP draft (v0.4).
 
-Covers the `feature` payload, `PUNCHKEY` addrv2 elements (valid and invalid),
-and the pairing computation of section 4: ECDH shared secret, pair value,
-ranking, and role, for fixed keys and block hashes.
+Covers the `feature` payload with its flags, `PUNCHKEY` addrv2 elements
+(valid and invalid), and the pairing computation of section 4: ECDH shared
+secret, pair value over the block hash and the sorted endpoints, ranking,
+and role, for fixed keys, endpoints, and block hashes.
 
 Encodings follow the draft: little-endian integers unless noted, BIP 155
 address elements with big-endian ports, minimally encoded CompactSize,
@@ -27,11 +28,13 @@ NET_IPV4, NET_IPV6, NET_TORV3, NET_I2P, NET_CJDNS, NET_PUNCHKEY = 1, 2, 4, 5, 6,
 ADDR_LEN = {NET_IPV4: 4, NET_IPV6: 16}
 PUNCHKEY_LENGTHS = {38, 50}
 FEATURE_ID = "https://delvingbitcoin.org/t/2497/22"
+FLAGS = {"BOARD": 1 << 0, "VISITOR": 1 << 1}
 PAIR_TAG = b"tcp-holepunch/pair"
 
 NODE_P2P_V2 = 1 << 11
 NODE_NETWORK = 1
 NODE_WITNESS = 1 << 3
+NODE_HOLEPUNCH_BOARD = 1 << 24
 
 
 class Malformed(Exception):
@@ -112,9 +115,14 @@ def tagged_hash(tag, msg):
     return hashlib.sha256(th + th + msg).digest()
 
 
-def pair_value(x, block_hash_bytes):
+def sorted_endpoints(ep_a, ep_b):
+    """R-4.5: the two serialised endpoints in lexicographic order."""
+    return b"".join(sorted([ep_a, ep_b]))
+
+
+def pair_value(x, block_hash_bytes, ep_a, ep_b):
     """R-4.5."""
-    return tagged_hash(PAIR_TAG, x + block_hash_bytes)
+    return tagged_hash(PAIR_TAG, x + block_hash_bytes + sorted_endpoints(ep_a, ep_b))
 
 
 def initiator_pubkey(pair, pub_a, pub_b):
@@ -170,6 +178,12 @@ def ser_u32(v):
 
 def ser_u16be(v):
     return v.to_bytes(2, "big")
+
+
+def ser_endpoint(ep):
+    """Terminology: net, CompactSize length, address bytes, big-endian port."""
+    addr = bytes.fromhex(ep["addr"])
+    return ser_u8(ep["net"]) + ser_cs(len(addr)) + addr + ser_u16be(ep["port"])
 
 
 # --- feature payload --------------------------------------------------------------
@@ -237,6 +251,7 @@ def deser_addrv2_element(b):
 
 IPV4_A = {"net": NET_IPV4, "addr": "cb007101", "port": 50123}       # 203.0.113.1, NAT-chosen port
 IPV4_B = {"net": NET_IPV4, "addr": "c6336402", "port": 8335}        # 198.51.100.2
+IPV4_C = {"net": NET_IPV4, "addr": "c0000203", "port": 40000}       # 192.0.2.3
 IPV6_A = {"net": NET_IPV6, "addr": "20010db8000000000000000000000001", "port": 18335}
 ONION = "53cd5648af46a92b5b74b7f8f6bd3bb86e5d9ab77c5f0e03a5b43a1b4bbef6ac"
 TIME = 1760600000
@@ -249,6 +264,8 @@ KEYS = {
     "C": 0xC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B14E5C9,
 }
 PUBS = {k: pubkey_bytes(d) for k, d in KEYS.items()}
+# each key announces one IPv4 endpoint; pair values are over the same family
+ENDPOINTS = {"A": IPV4_A, "B": IPV4_B, "C": IPV4_C}
 
 # block hashes in display order (as shown by explorers and RPCs)
 BLOCKS = {
@@ -284,7 +301,9 @@ def build():
             return
         raise SystemExit("invalid feature vector was accepted: " + desc)
 
-    add_feature_valid("version 0, no flags", {"version": 0, "flags": 0})
+    add_feature_valid("version 0, no flags (neither board nor visiting)", {"version": 0, "flags": 0})
+    add_feature_valid("version 0, BOARD (sent by a board)", {"version": 0, "flags": FLAGS["BOARD"]})
+    add_feature_valid("version 0, VISITOR (sent by a visitor on a board connection)", {"version": 0, "flags": FLAGS["VISITOR"]})
     add_feature_valid("version 0, unknown high bit set (must be ignored)", {"version": 0, "flags": 1 << 31})
     add_feature_valid("version 1 (negotiates down to 0 with a version 0 peer, R-3.2)", {"version": 1, "flags": 0})
     add_feature_invalid("truncated flags", "0000", "missing bytes")
@@ -333,7 +352,7 @@ def build():
     add_el_invalid("port 0", elem(ser_punchkey_addr(base), port=0), "R-5.1 port 0")
     add_el_invalid("empty addr", elem(b""), "R-5.1 invalid length")
 
-    # pairing: shared secret, pair value, role (R-4.4 to R-4.7)
+    # pairing: shared secret, pair value over block hash and sorted endpoints, role (R-4.4 to R-4.7)
     pairing = []
     names = sorted(KEYS)
     for i, a in enumerate(names):
@@ -341,8 +360,10 @@ def build():
             x_ab = shared_x(KEYS[a], PUBS[b])
             x_ba = shared_x(KEYS[b], PUBS[a])
             assert x_ab == x_ba, "ECDH is symmetric"
+            ep_a, ep_b = ser_endpoint(ENDPOINTS[a]), ser_endpoint(ENDPOINTS[b])
             for bname, bhex in BLOCKS.items():
-                pv = pair_value(x_ab, block_bytes(bhex))
+                pv = pair_value(x_ab, block_bytes(bhex), ep_a, ep_b)
+                assert pv == pair_value(x_ba, block_bytes(bhex), ep_b, ep_a), "pair value is symmetric"
                 init = initiator_pubkey(pv, PUBS[a], PUBS[b])
                 pairing.append({
                     "parties": [a, b],
@@ -350,6 +371,9 @@ def build():
                     "secret_%s" % b: "%064x" % KEYS[b],
                     "pubkey_%s" % a: PUBS[a].hex(),
                     "pubkey_%s" % b: PUBS[b].hex(),
+                    "endpoint_%s" % a: ENDPOINTS[a],
+                    "endpoint_%s" % b: ENDPOINTS[b],
+                    "endpoints_sorted_hex": sorted_endpoints(ep_a, ep_b).hex(),
                     "shared_x": x_ab.hex(),
                     "block": bname,
                     "block_hash_display": bhex,
@@ -359,20 +383,22 @@ def build():
                     "initiator": a if init == PUBS[a] else b,
                 })
 
-    # ranking: node A holds entries for B and C (R-4.6, R-7.4)
+    # ranking: node A (own endpoint IPV4_A) holds entries for B and C (R-4.6, R-7.4)
     ranking = []
     for bname, bhex in BLOCKS.items():
         rows = []
         for other in ("B", "C"):
-            pv = pair_value(shared_x(KEYS["A"], PUBS[other]), block_bytes(bhex))
+            pv = pair_value(shared_x(KEYS["A"], PUBS[other]), block_bytes(bhex), ser_endpoint(ENDPOINTS["A"]), ser_endpoint(ENDPOINTS[other]))
             rows.append({"entry": other, "pair": pv.hex(), "role_of_A": "initiator" if initiator_pubkey(pv, PUBS["A"], PUBS[other]) == PUBS["A"] else "responder"})
         rows.sort(key=lambda r: int(r["pair"], 16))
-        ranking.append({"node": "A", "block": bname, "block_hash_display": bhex, "order": rows})
+        ranking.append({"node": "A", "own_endpoint": ENDPOINTS["A"], "block": bname, "block_hash_display": bhex, "order": rows})
 
     return {
         "bip": "tcp-holepunch-coordinatorless",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "feature_id": FEATURE_ID,
+        "feature_flags": FLAGS,
+        "service_bit_board": NODE_HOLEPUNCH_BOARD,
         "punchkey_network_id": NET_PUNCHKEY,
         "pair_tag": PAIR_TAG.decode(),
         "feature_valid": feature_valid,
@@ -419,7 +445,10 @@ def check(doc):
         assert x == shared_x(db, pa) == bytes.fromhex(v["shared_x"])
         bh = bytes.fromhex(v["block_hash_bytes"])
         assert bh[::-1].hex() == v["block_hash_display"]
-        pv = pair_value(x, bh)
+        ep_a, ep_b = ser_endpoint(v["endpoint_" + a]), ser_endpoint(v["endpoint_" + b])
+        assert sorted_endpoints(ep_a, ep_b).hex() == v["endpoints_sorted_hex"]
+        pv = pair_value(x, bh, ep_a, ep_b)
+        assert pv == pair_value(x, bh, ep_b, ep_a)
         assert pv.hex() == v["pair"], "pair value"
         assert (pv[31] & 1) == v["role_bit"]
         assert initiator_pubkey(pv, pa, pb) == (pa if v["initiator"] == a else pb)

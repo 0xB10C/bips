@@ -1,16 +1,37 @@
 {
  "bip": "tcp-holepunch-coordinatorless",
- "version": "0.3.0",
+ "version": "0.4.0",
  "feature_id": "https://delvingbitcoin.org/t/2497/22",
+ "feature_flags": {
+  "BOARD": 1,
+  "VISITOR": 2
+ },
+ "service_bit_board": 16777216,
  "punchkey_network_id": 9,
  "pair_tag": "tcp-holepunch/pair",
  "feature_valid": [
   {
-   "description": "version 0, no flags",
+   "description": "version 0, no flags (neither board nor visiting)",
    "hex": "0000000000",
    "decoded": {
     "version": 0,
     "flags": 0
+   }
+  },
+  {
+   "description": "version 0, BOARD (sent by a board)",
+   "hex": "0001000000",
+   "decoded": {
+    "version": 0,
+    "flags": 1
+   }
+  },
+  {
+   "description": "version 0, VISITOR (sent by a visitor on a board connection)",
+   "hex": "0002000000",
+   "decoded": {
+    "version": 0,
+    "flags": 2
    }
   },
   {
@@ -192,13 +213,24 @@
    "secret_B": "b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfef",
    "pubkey_A": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
    "pubkey_B": "02dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659",
+   "endpoint_A": {
+    "net": 1,
+    "addr": "cb007101",
+    "port": 50123
+   },
+   "endpoint_B": {
+    "net": 1,
+    "addr": "c6336402",
+    "port": 8335
+   },
+   "endpoints_sorted_hex": "0104c6336402208f0104cb007101c3cb",
    "shared_x": "f549c8c8f9b44c4aab3e352998dd736d1247a3dcac80f5b0360f54f7dafd2bd5",
    "block": "genesis",
    "block_hash_display": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
    "block_hash_bytes": "6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000",
-   "pair": "35f9847911d316a6aeadac84db28f8abe9ac1d053af34ea7cdf022c6764c1a30",
-   "role_bit": 0,
-   "initiator": "B"
+   "pair": "3f1b2546b9e941cccb758cb5cadb6fb18587ac23b52209f113e6cb673c661513",
+   "role_bit": 1,
+   "initiator": "A"
   },
   {
    "parties": [
@@ -209,11 +241,22 @@
    "secret_B": "b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfef",
    "pubkey_A": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
    "pubkey_B": "02dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659",
+   "endpoint_A": {
+    "net": 1,
+    "addr": "cb007101",
+    "port": 50123
+   },
+   "endpoint_B": {
+    "net": 1,
+    "addr": "c6336402",
+    "port": 8335
+   },
+   "endpoints_sorted_hex": "0104c6336402208f0104cb007101c3cb",
    "shared_x": "f549c8c8f9b44c4aab3e352998dd736d1247a3dcac80f5b0360f54f7dafd2bd5",
    "block": "block 1",
    "block_hash_display": "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
    "block_hash_bytes": "4860eb18bf1b1620e37e9490fc8a427514416fd75159ab86688e9a8300000000",
-   "pair": "cb161fdb30634b7f0f28668265a7d00386edf04d639c01872009cbad567c2a78",
+   "pair": "ecacc8d072e676b6c9b3ce1bd11a7ad3e76b14d0ab5202a52aeb2035a0d486f8",
    "role_bit": 0,
    "initiator": "B"
   },
@@ -226,11 +269,22 @@
    "secret_C": "c90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b14e5c9",
    "pubkey_A": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
    "pubkey_C": "02dd308afec5777e13121fa72b9cc1b7cc0139715309b086c960e18fd969774eb8",
+   "endpoint_A": {
+    "net": 1,
+    "addr": "cb007101",
+    "port": 50123
+   },
+   "endpoint_C": {
+    "net": 1,
+    "addr": "c0000203",
+    "port": 40000
+   },
+   "endpoints_sorted_hex": "0104c00002039c400104cb007101c3cb",
    "shared_x": "279ed027ae68b70e053737137f620ea14b4c124d5e640636db58d163719e2cc3",
    "block": "genesis",
    "block_hash_display": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
    "block_hash_bytes": "6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000",
-   "pair": "137554c28505b4cffe6b9970586fcd04d2076f23999d3742487c6c04ec5af7ae",
+   "pair": "c39b9af0f8dbf9915a7a297f4b3268dc0204ad8b4a7f309fa4ccd4c6e5c678ba",
    "role_bit": 0,
    "initiator": "C"
   },
@@ -243,28 +297,22 @@
    "secret_C": "c90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b14e5c9",
    "pubkey_A": "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
    "pubkey_C": "02dd308afec5777e13121fa72b9cc1b7cc0139715309b086c960e18fd969774eb8",
+   "endpoint_A": {
+    "net": 1,
+    "addr": "cb007101",
+    "port": 50123
+   },
+   "endpoint_C": {
+    "net": 1,
+    "addr": "c0000203",
+    "port": 40000
+   },
+   "endpoints_sorted_hex": "0104c00002039c400104cb007101c3cb",
    "shared_x": "279ed027ae68b70e053737137f620ea14b4c124d5e640636db58d163719e2cc3",
    "block": "block 1",
    "block_hash_display": "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
    "block_hash_bytes": "4860eb18bf1b1620e37e9490fc8a427514416fd75159ab86688e9a8300000000",
-   "pair": "128d72190f4e85ef5931efa0a57808e812346f40def75852cf67950f14cf8cd1",
-   "role_bit": 1,
-   "initiator": "A"
-  },
-  {
-   "parties": [
-    "B",
-    "C"
-   ],
-   "secret_B": "b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfef",
-   "secret_C": "c90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b14e5c9",
-   "pubkey_B": "02dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659",
-   "pubkey_C": "02dd308afec5777e13121fa72b9cc1b7cc0139715309b086c960e18fd969774eb8",
-   "shared_x": "ca77ad739864d3f6f599f93842f48c89d5a9a7d0c867b767d53bf96f03557627",
-   "block": "genesis",
-   "block_hash_display": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
-   "block_hash_bytes": "6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000",
-   "pair": "c6db6100628de13f01df706213417f50b87dfac3c7ed49539cc8da6f8a3a0d44",
+   "pair": "69273df02e226d91dcacc00c1a3094b61423fa0bd9a6a4c6eeb3f1f8414af782",
    "role_bit": 0,
    "initiator": "C"
   },
@@ -277,11 +325,50 @@
    "secret_C": "c90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b14e5c9",
    "pubkey_B": "02dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659",
    "pubkey_C": "02dd308afec5777e13121fa72b9cc1b7cc0139715309b086c960e18fd969774eb8",
+   "endpoint_B": {
+    "net": 1,
+    "addr": "c6336402",
+    "port": 8335
+   },
+   "endpoint_C": {
+    "net": 1,
+    "addr": "c0000203",
+    "port": 40000
+   },
+   "endpoints_sorted_hex": "0104c00002039c400104c6336402208f",
+   "shared_x": "ca77ad739864d3f6f599f93842f48c89d5a9a7d0c867b767d53bf96f03557627",
+   "block": "genesis",
+   "block_hash_display": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
+   "block_hash_bytes": "6fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000",
+   "pair": "2737f0431de9ba173d785203ccc491c24ee6a62b13ff643afa0a6474039bfa5b",
+   "role_bit": 1,
+   "initiator": "B"
+  },
+  {
+   "parties": [
+    "B",
+    "C"
+   ],
+   "secret_B": "b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfef",
+   "secret_C": "c90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b14e5c9",
+   "pubkey_B": "02dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659",
+   "pubkey_C": "02dd308afec5777e13121fa72b9cc1b7cc0139715309b086c960e18fd969774eb8",
+   "endpoint_B": {
+    "net": 1,
+    "addr": "c6336402",
+    "port": 8335
+   },
+   "endpoint_C": {
+    "net": 1,
+    "addr": "c0000203",
+    "port": 40000
+   },
+   "endpoints_sorted_hex": "0104c00002039c400104c6336402208f",
    "shared_x": "ca77ad739864d3f6f599f93842f48c89d5a9a7d0c867b767d53bf96f03557627",
    "block": "block 1",
    "block_hash_display": "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
    "block_hash_bytes": "4860eb18bf1b1620e37e9490fc8a427514416fd75159ab86688e9a8300000000",
-   "pair": "49ca606b2a833bb55341cea187eef30be11b7be9ff2735c9c81586635e898f69",
+   "pair": "d8b1106f580e89cd84da722ab04a8610a8eb87cf2db9d38fcbfaa9ad15dc4727",
    "role_bit": 1,
    "initiator": "B"
   }
@@ -289,34 +376,44 @@
  "ranking": [
   {
    "node": "A",
+   "own_endpoint": {
+    "net": 1,
+    "addr": "cb007101",
+    "port": 50123
+   },
    "block": "genesis",
    "block_hash_display": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
    "order": [
     {
-     "entry": "C",
-     "pair": "137554c28505b4cffe6b9970586fcd04d2076f23999d3742487c6c04ec5af7ae",
-     "role_of_A": "responder"
+     "entry": "B",
+     "pair": "3f1b2546b9e941cccb758cb5cadb6fb18587ac23b52209f113e6cb673c661513",
+     "role_of_A": "initiator"
     },
     {
-     "entry": "B",
-     "pair": "35f9847911d316a6aeadac84db28f8abe9ac1d053af34ea7cdf022c6764c1a30",
+     "entry": "C",
+     "pair": "c39b9af0f8dbf9915a7a297f4b3268dc0204ad8b4a7f309fa4ccd4c6e5c678ba",
      "role_of_A": "responder"
     }
    ]
   },
   {
    "node": "A",
+   "own_endpoint": {
+    "net": 1,
+    "addr": "cb007101",
+    "port": 50123
+   },
    "block": "block 1",
    "block_hash_display": "00000000839a8e6886ab5951d76f411475428afc90947ee320161bbf18eb6048",
    "order": [
     {
      "entry": "C",
-     "pair": "128d72190f4e85ef5931efa0a57808e812346f40def75852cf67950f14cf8cd1",
-     "role_of_A": "initiator"
+     "pair": "69273df02e226d91dcacc00c1a3094b61423fa0bd9a6a4c6eeb3f1f8414af782",
+     "role_of_A": "responder"
     },
     {
      "entry": "B",
-     "pair": "cb161fdb30634b7f0f28668265a7d00386edf04d639c01872009cbad567c2a78",
+     "pair": "ecacc8d072e676b6c9b3ce1bd11a7ad3e76b14d0ab5202a52aeb2035a0d486f8",
      "role_of_A": "responder"
     }
    ]

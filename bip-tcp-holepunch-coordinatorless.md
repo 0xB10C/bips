@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.5
+  Version: 0.4.6
   Requires: 155, 324, 434
 ```
 
@@ -387,9 +387,13 @@ board names an endpoint that board saw connect[^source-cap].
 - R-6.1 Entries are identified by (endpoint, `pubkey`). The shared secret
   is computed once, when the entry is stored. Receiving an element for a
   stored (endpoint, `pubkey`) refreshes the entry: `last_seen` becomes the
-  current time, `time` the larger of the two, and `received_at` stays. A
-  different `pubkey` for a stored endpoint, or a different endpoint for a
-  stored `pubkey`, is a distinct entry.
+  current time and `received_at` stays. An element from a board whose
+  address equals that of an entry from the same board but whose `pubkey`
+  differs replaces that entry: the old entry is removed and the new one
+  stored with a new `received_at`, since the board holds one entry per
+  address and the node behind it has changed its key or its
+  port[^replace]. An element carrying a stored `pubkey` under a different
+  address never replaces anything; it is a distinct entry.
 - R-6.2 A node keeps at most `SOURCE_CAP` (64) entries per source group.
   To store a new entry for a full group it evicts an expired entry of that
   group if there is one, otherwise one chosen uniformly at
@@ -527,7 +531,7 @@ board names an endpoint that board saw connect[^source-cap].
 | I-8 | A hole-punch outbound exists only as the initiator side of a session with a picked entry that passed outbound diversity; at most `HP_OUTBOUND_MAX`; never an anchor. | Entry in an existing outbound's group: assert no initiator session. |
 | I-9 | Punched connections use BIP 324 without v1 fallback; both nodes advertise `NODE_P2P_V2`. | Send a v1 `version` on a punched connection; assert close. |
 | I-10 | The node has an external address only while two reporting peers in different network groups agree and no second such set disagrees; it announces only with an external address, its current key, and a free slot of either kind; a pick reserves the slot its role needs. | One dissenting report: address kept. Two agreeing dissenters: address dropped, no announcement. Both slots taken: board connections closed, no picks. |
-| I-11 | No source group exceeds `SOURCE_CAP` and the table never exceeds `TABLE_MAX`; a full group evicts at random within itself, a full table evicts from its largest group, a refresh evicts nothing; an entry from one board is never displaced by another board's elements; a re-received entry keeps `received_at`; a picked entry is removed. | Serve many entries from one board; count that board's entries; check other boards' entries are untouched. Re-send a stored element; assert eligibility unchanged. |
+| I-11 | No source group exceeds `SOURCE_CAP` and the table never exceeds `TABLE_MAX`; a full group evicts at random within itself, a full table evicts from its largest group, a refresh evicts nothing; an entry from one board is never displaced by another board's elements; an entry is replaced only by the board that served it, for the same address with a different key, and never by its key appearing under another address; a re-received entry keeps `received_at`; a picked entry is removed. | Serve many entries from one board; count that board's entries; check other boards' entries are untouched. Re-send a stored element; assert eligibility unchanged. Serve a new key for a stored address from the same board: assert the old entry is gone. Serve a stored key from a new address, or from another board: assert the old entry stays. |
 | I-12 | Each family has its own key, replaced whenever that family's announced external address changes and at least every `KEY_ROTATE_H`, at a time independent of the other family's; a new address is never announced under a key seen with an old one; pair values use the current key of the entry's family only. | Change the reported IPv4 address; assert a new IPv4 key is announced, the IPv6 key is unchanged, and the old key never appears with the new address. |
 | I-13 | An entry takes part only in rounds for blocks whose parent the tip reached after the entry was first received; the pair value depends on that block's hash and on both endpoints. | Insert an entry, connect one block: no attempt. Connect another: attempt. Change the block hash or either endpoint: different value. |
 | I-14 | A board stores only elements whose endpoint it observed on the connection they arrived on, one per connection, for the connection's lifetime plus `BOARD_GRACE`; it holds at most `BOARD_VISITORS_MAX` visitors, `BOARD_PER_GROUP` per network group, and `BOARD_IP_CAP` entries per address; it sends entries only to its visitors, and its answer to a visitor's element contains the visitor's own entry exactly when it stored it. | Announce an endpoint other than the connection's: assert not stored and absent from the answer. Connect many times from one address and from one group: count. Disconnect: assert removal after `BOARD_GRACE`. |
@@ -634,8 +638,18 @@ the change would let anyone follow the node from one address to the
 next, which nothing else lets them do for an unreachable node. So a new
 address never appears under an old key. Rotating more often than that
 would hurt: every new key is a new entry in every table that waits a
-block before it can be picked (R-7.2), while picks of the old key go
-unanswered.
+block before it can be picked (R-7.2).
+
+[^replace]: A board holds one entry per address, so when it sends a new
+key for an address it has already replaced the old one. Mirroring that
+at once saves the hour in which picks of the old key would otherwise go
+unanswered, since the node computes with its new key only. The
+replacement is accepted only from the board that supplied the old entry,
+because a lying board must not be able to evict what another board
+served. The other direction is never a replacement: a board verifies
+addresses, not keys, so anyone holding an address can announce an
+existing key from it, and letting a key carry an entry to a new address
+would hand such a visitor the honest node's place in every table.
 
 [^key-per-family]: Nothing else in the P2P protocol links a node's IPv4
 and IPv6 addresses, and announcing both under one key would link them
@@ -906,9 +920,10 @@ reserved, local, the node's own, or on a bad port.
 **Starving a node.** Nobody but the node itself can create or replace an
 entry for its address at an honest board, since doing so requires
 connecting from that address. A lying board can omit the node; its other
-board still serves it. A node's entry in a visitor's table cannot be
-reset by anyone, since only a new (endpoint, key) combination gets a new
-`received_at`, and the node alone announces its key.
+board still serves it. A node's entry in a visitor's table is replaced only by the board that
+served it, for the same address with a new key (R-6.1), so a lying board
+can churn its own entries and nothing else; a key seen from a new
+address never displaces the entry the node announced itself.
 
 **Grinding.** The key must be in the victim's table before the victim's
 tip reached the parent of the block whose hash enters the pair value,
@@ -991,6 +1006,9 @@ R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.6 (2026-10-18): an element from a board for an address it already
+  served, with a new key, replaces the old entry at once; a key seen
+  from a new address never replaces anything.
 * 0.4.5 (2026-10-17): ordinary outbound connections no longer use the
   punch port; boards and punched peers are the reporters; a visitor
   avoids boards it is otherwise connected to, replaces a board whose

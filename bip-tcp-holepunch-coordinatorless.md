@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.6
+  Version: 0.4.7
   Requires: 155, 324, 434
 ```
 
@@ -189,8 +189,11 @@ endpoint), started by a pick (R-7.4).
 - R-2.4 Losing the external address stops new announcements and new picks
   for that family. Sessions already running continue.
 - R-2.5 On test networks where all nodes share a host, an implementation
-  MAY waive routability (R-2.1, R-5.1, R-7.3) and treat every peer as its
-  own network group.
+  MAY waive routability (R-2.1, R-5.1, R-7.3), treat every peer as its
+  own network group, and compare full endpoints instead of addresses
+  where this document compares addresses (`BOARD_IP_CAP` in R-5.5 and
+  R-5.7, the own-address exclusion in R-7.3), since every node there has
+  the same address.
 
 ### 3. Signalling
 
@@ -219,13 +222,14 @@ endpoint), started by a pick (R-7.4).
   after the handshake, such as a feeler: it would only tell one more
   node that the sender takes part.
 - R-3.5 A connection is a *board connection* once the visitor has sent
-  the feature with `VISITOR` and the board has sent it with `BOARD`. On a
-  board connection both sides send only `version`, `verack`, `feature`,
-  `sendaddrv2`, `ping`, `pong`, and `addrv2` messages consisting of
-  `PUNCHKEY` elements; the visitor sends `version` with transaction relay
-  disabled, and either side MUST disconnect on any other message. If
-  either flag is missing after the feature exchange, the visitor closes
-  the connection.
+  the feature with `VISITOR` and the board has sent it with `BOARD`.
+  Before `verack` both sides send what their version handshake sends,
+  including the `feature` message; from `verack` on, both sides send
+  only `ping`, `pong`, and `addrv2` messages consisting of `PUNCHKEY`
+  elements, and either side MUST disconnect on any other message. The
+  visitor sends `version` with transaction relay disabled. If either
+  flag is missing after the feature exchange, the visitor closes the
+  connection.
 - R-3.6 This document defines no new message. The only new wire element
   is the `PUNCHKEY` address type. `PUNCHKEY` elements MUST NOT be sent on
   any connection other than a board connection.
@@ -322,12 +326,13 @@ it[^time]. Valid `addr` lengths are 38 and 50 bytes.
   connection whenever the key or the external address changes, and
   nothing else about itself. The board answers every element with its
   live entries (R-5.8); if that answer does not contain the visitor's own
-  entry, the board did not store it, usually because it saw a different
-  endpoint, and the visitor replaces the connection with one to a
-  different board[^ack]. A visitor announces only while it has a free
-  hole-punch outbound slot (section 9) or a free inbound slot, counting
-  slots reserved by sessions as used; with neither free it closes its
-  board connections and reopens them when a slot frees[^both-announce].
+  entry, or no answer arrives within `BOARD_ACK` (60 s), the board did
+  not store it, usually because it saw a different endpoint, and the
+  visitor replaces the connection with one to a different board[^ack]. A
+  visitor announces only while it has a free hole-punch outbound slot
+  (section 9) or a free inbound slot, counting slots reserved by sessions
+  as used; with neither free it closes its board connections and reopens
+  them when a slot frees[^both-announce].
 - R-5.4 Elements a board sends on a board connection go to the table of
   section 6 with the board's network group as the source group. A
   visitor MUST NOT forward elements to anyone.
@@ -337,7 +342,9 @@ it[^time]. Valid `addr` lengths are 38 and 50 bytes.
 - R-5.5 A node that sets `BOARD` accepts board connections into a pool of
   at most `BOARD_VISITORS_MAX` (32), kept apart from its ordinary inbound
   limit, with at most `BOARD_PER_GROUP` (4) visitors from one network
-  group and `BOARD_IP_CAP` (1) from one address. A connection beyond any
+  group and `BOARD_IP_CAP` (1) from one address. Until the visitor's
+  feature arrives the board cannot tell it from an ordinary inbound
+  connection and MAY count it as one. A connection beyond any
   of these limits is closed after the handshake without being served
   anything, except that when the pool is full a board MAY instead close
   the longest-connected visitor from the most represented network group
@@ -430,6 +437,8 @@ board names an endpoint that board saw connect[^source-cap].
     endpoints[^same-nat], and its port is not one the implementation
     treats as a bad port;
   - the node has no connection and no session to the endpoint;
+  - as initiator, its services include every service the node requires
+    of an ordinary outbound peer[^services];
   - fewer than `GROUP_SESSIONS_PER_HOUR` (4) sessions to addresses in its
     network group started in the last hour;
   - with the role from R-4.7 for this round: as initiator, the hole-punch
@@ -443,9 +452,10 @@ board names an endpoint that board saw connect[^source-cap].
   so a false entry costs one session's attempts and nothing else.
 - R-7.4 The node computes the pair value (R-4.5) of every candidate for
   `B`, sorts the candidates by it (R-4.6), and walks the list from the
-  lowest value. It skips a candidate whose network group or source group
-  equals that of a candidate already taken this round[^one-ticket], and
-  one whose role's slot was reserved meanwhile. It stops after
+  lowest value. It skips a candidate whose network group equals that of
+  a candidate already taken this round, one whose source group equals
+  that of two candidates already taken[^one-ticket], and one whose
+  role's slot was reserved meanwhile. It stops after
   `PICKS_PER_ROUND` (3) picks, or earlier when another session would
   exceed `MAX_ACTIVE_SESSIONS` (6)[^ranking]. For each pick it reserves
   the slot the role needs until the session ends and starts a session
@@ -525,7 +535,7 @@ board names an endpoint that board saw connect[^source-cap].
 | I-2 | A session is keyed by (punch port, peer endpoint) and has at most one connection, whose remote endpoint equals the entry's endpoint. An accepted socket that matches no session is held untouched for at most `HOLD_MS`, then closed unless a session for its endpoint started; at most `HELD_MAX` are held. | Connect to the punch port unexpectedly; assert silence and closure after `HOLD_MS`. Connect, then start a session for that endpoint; assert it uses the held socket. |
 | I-3 | Every board connection, every punch attempt, and the listener of a family share the punch port; ordinary outbound connections do not use it. | Inspect local ports of all sockets. |
 | I-4 | SYNs go only to endpoints of entries picked in a round: routable, not local, not the node's own address, same family, not a bad port; one attempt at a time; at most seven per session. | Feed elements with bad endpoints; count SYNs with a socket mock. |
-| I-5 | Per round at most `PICKS_PER_ROUND` sessions start, at most one per source group and one per network group; at most `MAX_ACTIVE_SESSIONS` exist; at most `GROUP_SESSIONS_PER_HOUR` start per network group per hour. | Serve a table from one board and from several; connect blocks; count sessions per source and per group. |
+| I-5 | Per round at most `PICKS_PER_ROUND` sessions start, at most two per source group and one per network group; at most `MAX_ACTIVE_SESSIONS` exist; at most `GROUP_SESSIONS_PER_HOUR` start per network group per hour. | Serve a table from one board and from several; connect blocks; count sessions per source and per group. |
 | I-6 | Every session ends within `WINDOW_MS + GRACE_MS` in success or failure, releasing every socket but the connection and the reserved slot. | Drive sessions to both outcomes; compare socket counts. |
 | I-7 | `PUNCHKEY` elements travel only on board connections, from a visitor to its board and from a board to its visitors; they never enter the address manager, `getaddr` responses, or persisted files, and no node forwards one it received; at most `PUNCHKEY_PER_HOUR` per peer are processed. | Send elements on an ordinary connection: assert disconnect. Query the address manager and `getaddr`. Exceed the rate. Restart. |
 | I-8 | A hole-punch outbound exists only as the initiator side of a session with a picked entry that passed outbound diversity; at most `HP_OUTBOUND_MAX`; never an anchor. | Entry in an existing outbound's group: assert no initiator session. |
@@ -545,13 +555,14 @@ board names an endpoint that board saw connect[^source-cap].
 | `RETRY_MS` | 1000, doubled after each failure | R-8.2 |
 | `GRACE_MS` | 5000 | R-8.7 |
 | `HOLD_MS` / `HELD_MAX` | 10000 / 8 | R-8.4 |
-| `PICKS_PER_ROUND` | 3, at most one per source group and per network group | R-7.4 |
+| `PICKS_PER_ROUND` | 3, at most two per source group and one per network group | R-7.4 |
 | `MAX_ACTIVE_SESSIONS` | 6 | R-7.4 |
 | `GROUP_SESSIONS_PER_HOUR` | 4 | R-7.3 |
 | `BOARDS` | 2 per announced family, in distinct network groups | R-5.2 |
 | `BOARD_ROTATE_H` | 6 h | R-5.2 |
 | `BOARD_FAIL_MAX` / `BOARD_BACKOFF` | 4 / 1 h | R-5.2 |
 | `BOARD_VISITORS_MAX` / `BOARD_PER_GROUP` / `BOARD_IP_CAP` | 32 / 4 / 1 | R-5.5, R-5.7 |
+| `BOARD_ACK` | 60 s | R-5.3 |
 | `BOARD_GRACE` | 10 min | R-5.7 |
 | `BOARD_REFRESH` | 30 min | R-5.8 |
 | `PUNCHKEY_PER_HOUR` | 240 | R-5.10 |
@@ -725,8 +736,8 @@ rather than the receiver's processor.
 
 [^source-cap]: What a board serves is the only way an entry gets into a
 table, so a lying board is the only way fiction gets in. The per-source
-cap bounds what one board can plant, and one pick per source group per
-round bounds what its entries can cost (R-7.4). Since every entry from
+cap bounds what one board can plant, and two picks per source group per
+round bound what its entries can cost (R-7.4). Since every entry from
 an honest board is real, admission needs no other defence; diversity of
 the announced addresses is still checked at pick time (R-7.3), because
 a lying board may invent them.
@@ -776,14 +787,21 @@ address, so they would spend picks on each other every round. Excluding
 any candidate at the node's own external address, whatever the port,
 stops that.
 
+[^services]: The initiator side of a session becomes an outbound
+connection. An ordinary outbound peer is chosen for the services it
+offers, and an entry's services are announced by the entry itself, so
+the same requirement applies at pick time. The responder side accepts
+whatever connects, as it does for any inbound connection.
+
 [^one-ticket]: The pair value is the selection signal, so a lying board
 that serves many entries holds many tickets, and the best of a hundred
 draws beats the best of a few almost every round. That cannot be fixed
 at the ranking, because the ranking is what makes both sides agree.
-Taking at most one pick per source group per round caps what one
-board's entries can cost at one pick in three, however many it served.
-In the honest case the cap costs nothing: a node's sources are its two
-boards per family, and the three lowest values rarely share one.
+Taking at most two picks per source group per round caps what one
+board's entries can cost at two picks in three, however many it served.
+Two rather than one because a node's sources are its two boards per
+family, and the honest case can only fill three picks if one source may
+give two.
 
 [^ranking]: Firing on a fixed threshold would make the number of
 attempts grow with the table. Taking the lowest few gives a fixed number
@@ -892,7 +910,7 @@ the per-group session cap and inbound treatment apply to them.
 **Lying boards.** A board can serve whatever it likes to its visitors:
 invented endpoints, replayed keys, a sybil roster, or nothing. Each
 visitor bounds a board like any other source: at most `SOURCE_CAP`
-entries, one pick per round (R-7.4), and the announced network group
+entries, two picks per round (R-7.4), and the announced network group
 must pass diversity. Two boards per family in distinct groups mean one
 lying board cannot blind a node, and rotation limits how long one is
 trusted. A board that invents endpoints makes its visitors send bounded
@@ -934,8 +952,8 @@ consecutive blocks could grind (see [^parent]).
 **Sybil and eclipse.** The hole-punch outbound is one extra slot, kept
 out of anchors and diversity accounting, and its peer must pass outbound
 diversity. Taking it needs a real host in a network group the node
-lacks, a ranking the attacker cannot influence, and at most one pick per
-round per board the attacker controls. On the responder side, unreachable
+lacks, a ranking the attacker cannot influence, and at most two picks
+per round per board the attacker controls. On the responder side, unreachable
 nodes become reachable to anyone with a real host on the same board;
 those are inbound connections with inbound treatment, and the per-group
 caps bound how many one attacker can hold. Boards are chosen from the
@@ -1006,6 +1024,13 @@ R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.7 (2026-10-18): a board connection is restricted from `verack`
+  on, the handshake before it is the ordinary one; up to two picks per
+  source group per round, so that two boards can fill three picks; an
+  initiator pick needs the services required of an ordinary outbound;
+  `BOARD_ACK` bounds the wait for the board's answer; a board may count
+  a visitor as inbound until its feature arrives; test-network waivers
+  compare endpoints where all nodes share an address.
 * 0.4.6 (2026-10-18): an element from a board for an address it already
   served, with a new key, replaces the old entry at once; a key seen
   from a new address never replaces anything.

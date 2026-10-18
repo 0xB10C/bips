@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.8
+  Version: 0.4.9
   Requires: 155, 324, 434
 ```
 
@@ -358,7 +358,9 @@ it[^time]. Valid `addr` lengths are 38 and 50 bytes.
   visitor announces only while it has a free hole-punch outbound slot
   (section 9) or a free inbound slot, counting slots reserved by sessions
   as used; with neither free it closes its board connections and reopens
-  them when a slot frees[^both-announce].
+  them when a slot frees[^both-announce]. It announces only while it is
+  close to the tip in the sense of R-7.1, since a node that is catching
+  up holds no rounds and so cannot punch back to anyone who picks it.
 - R-5.4 Elements a board sends on a board connection go to the table of
   section 6 with the board's network group as the source group. A
   visitor MUST NOT forward elements to anyone.
@@ -447,10 +449,11 @@ board names an endpoint that board saw connect[^source-cap].
 ### 7. Rounds
 
 - R-7.1 A round starts when the node's active chain tip changes to a
-  block `B` at a greater height than before and the node is not in
-  initial block download. A tip change that does not increase the height,
-  such as a reorganisation to a chain of equal length, holds no
-  round[^reorg]. Each block hash triggers at most one round. The round
+  block `B` at a greater height than before, the node is not in initial
+  block download, and its blocks are at most `TIP_LAG` (2) behind the
+  best header it knows[^near-tip]. A tip change that does not increase
+  the height, such as a reorganisation to a chain of equal length, holds
+  no round[^reorg]. Each block hash triggers at most one round. The round
   starts at the time of the tip change, and the node remembers that time
   for each of its recent tips; blocks connected in one batch share the
   batch's time[^block-trigger].
@@ -587,6 +590,7 @@ board names an endpoint that board saw connect[^source-cap].
 | `HOLD_MS` / `HELD_MAX` | 10000 / 8 | R-8.4 |
 | `PICKS_PER_ROUND` | 3, at most two per source group and one per network group | R-7.4 |
 | `MAX_ACTIVE_SESSIONS` | 6 | R-7.4 |
+| `TIP_LAG` | 2 blocks | R-7.1 |
 | `GROUP_SESSIONS_PER_HOUR` | 4 | R-7.3 |
 | `BOARDS` | 2 per announced family, in distinct network groups | R-5.2 |
 | `BOARD_ROTATE_H` | 6 h | R-5.2 |
@@ -809,6 +813,16 @@ the largest group hits exactly the group a lying board inflates.
 [^last-seen]: Expiring from the local time of the last receipt trusts
 nothing the announcer wrote and pairs with the board's refresh (R-5.8):
 an entry lives while its board keeps re-sending it.
+
+[^near-tip]: A round for `B` happens on each node when that node's tip
+reaches `B`, so two nodes meet only if they reach it at about the same
+time. A node that is catching up reaches `B` long after its peers did and
+its windows never overlap theirs, so its attempts are wasted. It must
+also stay out of every table while it is behind: a peer that picked its
+entry would start a session and wait out the window alone, because the
+node holds no round to punch back with. Initial block download is not a
+sufficient test, since a node leaves it while still some way behind, and
+the headers it already knows are what say how far.
 
 [^reorg]: Nodes see a reorganisation to a chain of the same height at
 different times or not at all, so a round on it would rarely find both
@@ -1086,6 +1100,11 @@ R-2.1, R-5.1, and R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.9 (2026-10-18): a node holds rounds and announces only while its
+  blocks are within `TIP_LAG` of the best header it knows. Leaving
+  initial block download is not enough: a node that is catching up
+  reaches each block long after its peers, so its windows never overlap
+  theirs, and its own entry in their tables only costs them a session.
 * 0.4.8 (2026-10-18): a report counts on any connection the node opened
   from a punch socket, and only once the handshake on it is complete, so
   the rule names the connection and not the kind of peer; replacing a

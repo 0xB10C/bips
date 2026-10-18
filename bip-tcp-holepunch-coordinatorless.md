@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.7
+  Version: 0.4.8
   Requires: 155, 324, 434
 ```
 
@@ -110,10 +110,13 @@ the node runs[^punch-port].
 `SO_REUSEADDR` and `SO_REUSEPORT` set before binding.
 
 **Report.** The `addr_recv` field of a peer's `version` message: the
-node's address and port as that peer sees them. Only reports on
-connections made from a punch socket without a proxy count, and such
-peers are *reporting peers*: the node's boards, and peers reached by
-punching.
+node's address and port as that peer sees them. A report counts only on
+a connection the node opened from a punch socket without a proxy, or on
+the connection a session produced, and only once the version handshake
+on it is complete; the peers of those connections are the *reporting
+peers*. Today they are the node's boards and the peers it punched to,
+but what makes a report meaningful is the local port the connection was
+made from, not what the peer is.
 
 **External address.** For one address family, the endpoint that at least
 two current reporting peers in different network groups report, as long
@@ -176,9 +179,12 @@ endpoint), started by a pick (R-7.4).
 
 ### 2. External address
 
-- R-2.1 Reports from proxied connections, from connections not made from
-  a punch socket, with an address that is not globally routable, or with
-  port 0 MUST be ignored.
+- R-2.1 A report MUST be ignored unless the connection it arrived on was
+  opened by this node from a punch socket, or is the connection a session
+  produced, and the version handshake on that connection is complete. A
+  report from a proxied connection, with an address that is not globally
+  routable, or with port 0 MUST be ignored as well. An inbound connection
+  that merely arrives on the punch port is not a reporter[^who-reports].
 - R-2.2 The node has an external address for a family when at least two
   current reporting peers in different network groups report the same
   endpoint. A single dissenting report changes nothing.
@@ -193,7 +199,10 @@ endpoint), started by a pick (R-7.4).
   own network group, and compare full endpoints instead of addresses
   where this document compares addresses (`BOARD_IP_CAP` in R-5.5 and
   R-5.7, the own-address exclusion in R-7.3), since every node there has
-  the same address.
+  the same address. Treating every peer as its own network group covers
+  every use of the grouping, including the source groups of section 6 and
+  the per-group session budget of R-7.3, which would otherwise collapse
+  to one group.
 
 ### 3. Signalling
 
@@ -232,7 +241,8 @@ endpoint), started by a pick (R-7.4).
   connection.
 - R-3.6 This document defines no new message. The only new wire element
   is the `PUNCHKEY` address type. `PUNCHKEY` elements MUST NOT be sent on
-  any connection other than a board connection.
+  any connection other than a board connection, and a node that receives
+  one on any other connection MUST disconnect.
 
 ### 4. Keys and the pair value
 
@@ -249,8 +259,14 @@ endpoint), started by a pick (R-7.4).
   that was seen with an old one, and at least every `KEY_ROTATE_H`
   (24 h), at a time not aligned across nodes and not aligned with the
   node's other family[^rotation]. After replacement the node uses the new
-  key only, MAY discard the old secret, and SHOULD announce that family
-  again promptly (R-5.3).
+  key only and SHOULD announce that family again promptly (R-5.3).
+  Replacing a key changes every shared secret of that family, so the node
+  MUST recompute the shared secret of each stored entry of that family
+  with the new key, keeping each entry's `received_at` (R-6.1); it MAY
+  then discard the old key. Until the new announcement reaches a peer,
+  that peer still holds the old public key and computes the old secret, so
+  the two sides disagree for as long as the announcement takes to
+  arrive[^rotation-secret].
 - R-4.4 The **shared secret** between the node and an entry is `x`, the x
   coordinate of `p · P_entry` as 32 bytes big-endian, where `p` is the
   node's key for the entry's address family. The other node computes
@@ -296,20 +312,23 @@ meaning in this protocol: a visitor writes the current time, a board
 writes the time it received the element, and receivers do not act on
 it[^time]. Valid `addr` lengths are 38 and 50 bytes.
 
-- R-5.1 A receiver MUST reject an element with an invalid length, a `net`
-  other than `IPV4` or `IPV6`, an `addr` that is not globally routable, a
-  `port` of 0, a `pubkey` that is not a valid compressed point (prefix
-  other than `0x02` or `0x03`, x coordinate not below the field size, or
-  x not on the curve), or `services` without `NODE_P2P_V2`. A rejected
-  element is ignored; rejection alone is no reason to disconnect.
+- R-5.1 A receiver MUST reject an element whose length is neither 38 nor
+  50 bytes or does not match its `net` (38 for `IPV4`, 50 for `IPV6`), a
+  `net` other than `IPV4` or `IPV6`, an `addr` that is not globally
+  routable, a `port` of 0, a `pubkey` that is not a valid compressed
+  point (prefix other than `0x02` or `0x03`, x coordinate not below the
+  field size, or x not on the curve), or `services` without
+  `NODE_P2P_V2`. A rejected element is ignored; rejection alone is no
+  reason to disconnect.
 
 #### Visitors
 
 - R-5.2 A participant keeps `BOARDS` (2) board connections for each
   address family it takes part in, to boards in distinct network groups,
   chosen uniformly at random from reachable addresses in its address
-  manager that advertise `NODE_HOLEPUNCH_BOARD` and that it is not
-  otherwise connected to. It opens each from a punch socket (R-1.1), so
+  manager that advertise `NODE_HOLEPUNCH_BOARD` and `NODE_P2P_V2` and
+  that it is not otherwise connected to. It opens each from a punch
+  socket (R-1.1), so
   that the board observes its mapped endpoint and reports it; the boards
   are the reporting peers that R-2.2 needs. It replaces a board
   connection `BOARD_ROTATE_H` (6 h) after opening it, at a time not
@@ -317,9 +336,16 @@ it[^time]. Valid `addr` lengths are 38 and 50 bytes.
   replaces one of them when the boards' reports disagree (R-2.3), and
   replaces a connection the board closes before serving anything, as a
   board does when it refuses a visitor (R-5.5), or that yields no
-  acknowledgement (R-5.3). After `BOARD_FAIL_MAX` (4) replacements in a
-  row for one family without an external address or an acknowledgement,
-  it stops for `BOARD_BACKOFF` (1 h)[^backoff].
+  acknowledgement (R-5.3). Of those, only a disagreeing report and a
+  missing acknowledgement count towards the pause below: they say
+  something about this node, the others say something about the address.
+  `NODE_HOLEPUNCH_BOARD` is an unauthenticated advertisement, so a
+  candidate that cannot be reached, closes before the handshake is
+  complete, or never sends `BOARD` is only a bad address; a node MUST NOT
+  count it and SHOULD NOT pick that address again for
+  `BOARD_BACKOFF`[^unauthenticated-bit]. After `BOARD_FAIL_MAX` (4)
+  counting outcomes in a row for one family it stops for `BOARD_BACKOFF`
+  (1 h)[^backoff]; an acknowledgement clears the count.
 - R-5.3 On a board connection, after the feature exchange, the visitor
   sends one element: its external address for the connection's family
   (R-2.2) and that family's key. It sends a new element on that
@@ -378,8 +404,9 @@ it[^time]. Valid `addr` lengths are 38 and 50 bytes.
   (240) elements from one peer in any hour, counting every element
   received whether or not it is accepted. Further elements from that peer
   in that hour are ignored, which is not by itself a protocol violation,
-  and a node SHOULD NOT send a peer more than that[^rate-limit]. Elements
-  also count as one address each against the general address rate limit.
+  and a node SHOULD NOT send a peer more than that[^rate-limit]. A board
+  connection carries no address relay, so the general address rate limit
+  has nothing to apply to there.
 - R-5.11 A node does not store elements that carry one of its own public
   keys or one of its own external addresses. On a board connection, its
   own entry in the board's answer is the acknowledgement of R-5.3, nothing
@@ -392,15 +419,17 @@ is keyed by a value the announcer chooses, and every entry from an honest
 board names an endpoint that board saw connect[^source-cap].
 
 - R-6.1 Entries are identified by (endpoint, `pubkey`). The shared secret
-  is computed once, when the entry is stored. Receiving an element for a
-  stored (endpoint, `pubkey`) refreshes the entry: `last_seen` becomes the
-  current time and `received_at` stays. An element from a board whose
-  address equals that of an entry from the same board but whose `pubkey`
-  differs replaces that entry: the old entry is removed and the new one
-  stored with a new `received_at`, since the board holds one entry per
-  address and the node behind it has changed its key or its
-  port[^replace]. An element carrying a stored `pubkey` under a different
-  address never replaces anything; it is a distinct entry.
+  is computed when the entry is stored, with the node's current key for
+  the entry's family, and again whenever that key is replaced (R-4.3).
+  Receiving an element for a stored (endpoint, `pubkey`) refreshes it:
+  `last_seen` becomes the current time and `received_at` stays. An
+  element from a board whose address equals that of an entry from the
+  same board but whose `pubkey` differs replaces that entry: the old
+  entry is removed and the new one stored with a new `received_at`, since
+  the board holds one entry per address and the node behind it has
+  changed its key or its port[^replace]. An element carrying a stored
+  `pubkey` under a different address never replaces anything; it is a
+  distinct entry.
 - R-6.2 A node keeps at most `SOURCE_CAP` (64) entries per source group.
   To store a new entry for a full group it evicts an expired entry of that
   group if there is one, otherwise one chosen uniformly at
@@ -483,7 +512,8 @@ board names an endpoint that board saw connect[^source-cap].
   attempt at a time per session; with these numbers at most seven.
 - R-8.3 An attempt that fails because the 4-tuple is already in use is
   closed and not retried; the node waits for a matching socket from the
-  listener until the session ends.
+  listener until the session ends. Operating systems report this as
+  `EADDRINUSE` or `EADDRNOTAVAIL`.
 - R-8.4 The session's connection is the first socket whose remote endpoint
   equals the entry's endpoint, whether it came from `connect()` or from
   `accept()` on the punch port; with fixed ports on both sides there can
@@ -540,7 +570,7 @@ board names an endpoint that board saw connect[^source-cap].
 | I-7 | `PUNCHKEY` elements travel only on board connections, from a visitor to its board and from a board to its visitors; they never enter the address manager, `getaddr` responses, or persisted files, and no node forwards one it received; at most `PUNCHKEY_PER_HOUR` per peer are processed. | Send elements on an ordinary connection: assert disconnect. Query the address manager and `getaddr`. Exceed the rate. Restart. |
 | I-8 | A hole-punch outbound exists only as the initiator side of a session with a picked entry that passed outbound diversity; at most `HP_OUTBOUND_MAX`; never an anchor. | Entry in an existing outbound's group: assert no initiator session. |
 | I-9 | Punched connections use BIP 324 without v1 fallback; both nodes advertise `NODE_P2P_V2`. | Send a v1 `version` on a punched connection; assert close. |
-| I-10 | The node has an external address only while two reporting peers in different network groups agree and no second such set disagrees; it announces only with an external address, its current key, and a free slot of either kind; a pick reserves the slot its role needs. | One dissenting report: address kept. Two agreeing dissenters: address dropped, no announcement. Both slots taken: board connections closed, no picks. |
+| I-10 | Only a connection the node opened from a punch socket, or the connection a session produced, reports, and only once its handshake is complete; the node has an external address only while two reporting peers in different network groups agree and no second such set disagrees; it announces only with an external address, its current key, and a free slot of either kind; a pick reserves the slot its role needs. | Report on an ordinary outbound and on a connection accepted on the punch port: assert neither counts. A peer that sends `version` and no `verack`: assert no report. One dissenting report: address kept. Two agreeing dissenters: address dropped, no announcement. Both slots taken: board connections closed, no picks. |
 | I-11 | No source group exceeds `SOURCE_CAP` and the table never exceeds `TABLE_MAX`; a full group evicts at random within itself, a full table evicts from its largest group, a refresh evicts nothing; an entry from one board is never displaced by another board's elements; an entry is replaced only by the board that served it, for the same address with a different key, and never by its key appearing under another address; a re-received entry keeps `received_at`; a picked entry is removed. | Serve many entries from one board; count that board's entries; check other boards' entries are untouched. Re-send a stored element; assert eligibility unchanged. Serve a new key for a stored address from the same board: assert the old entry is gone. Serve a stored key from a new address, or from another board: assert the old entry stays. |
 | I-12 | Each family has its own key, replaced whenever that family's announced external address changes and at least every `KEY_ROTATE_H`, at a time independent of the other family's; a new address is never announced under a key seen with an old one; pair values use the current key of the entry's family only. | Change the reported IPv4 address; assert a new IPv4 key is announced, the IPv6 key is unchanged, and the old key never appears with the new address. |
 | I-13 | An entry takes part only in rounds for blocks whose parent the tip reached after the entry was first received; the pair value depends on that block's hash and on both endpoints. | Insert an entry, connect one block: no attempt. Connect another: attempt. Change the block hash or either endpoint: different value. |
@@ -637,7 +667,34 @@ their reports.
 verification at every board and would otherwise hop from board to board
 for good, costing each a handshake. Two reporters in distinct groups
 usually catch such a mapping before the first announcement, but not
-always, so repeated failures are treated as the signal they are.
+always, so repeated failures are treated as the signal they are. Only an
+acknowledgement clears the count, because with `BOARDS` of 2 per family a
+count that also reset whenever a fresh pair of boards confirmed an
+external address could never reach four, which is the case this is for.
+
+[^unauthenticated-bit]: Service bits are advertisements nobody verifies,
+so anyone who can get a few addresses into a node's address manager could
+otherwise stop its hole punching an hour at a time by claiming the board
+bit and then doing nothing. An advertised bit alone may never cost a node
+more than one connection attempt. Counting only what a real board
+produces also makes the pause mean what it says: that this node, not the
+address, is the problem.
+
+[^who-reports]: What makes a report meaningful is the local port, since
+that is the mapping the punch attempts will use, so the rule is about the
+connection and not about the kind of peer. It has to be a connection the
+node opened, because a node whose punch port is also a listening port
+would otherwise let anyone who dials in report an address for it, and two
+such peers in different groups could invent an external address for it.
+Waiting for the handshake costs nothing and drops a peer that opens a
+connection and then says nothing.
+
+[^rotation-secret]: The pair value works only because both sides compute
+the same shared secret, and each computes it from its own secret key and
+the other's public key. A node that kept the secret it computed before
+its own rotation would keep pairing on a key its peers no longer hold,
+and since a refresh recomputes nothing the mismatch would last as long as
+the entry. Recomputing costs one multiplication per entry of the family.
 
 [^min-version]: Taking the lower version lets an upgrade spread one node
 at a time. Old nodes will read this field the way it is defined now, so
@@ -833,7 +890,10 @@ one, since nothing is ever sent on it.
 announcements a node happens to hold influence which ordinary peers it
 has. One extra slot bounds the influence to one connection, and bounds
 the network: with `HP_OUTBOUND_MAX` of 1, N participants hold at most N
-punched connections.
+punched connections. Since the slot is one and the role of a pair is a
+coin flip, a round's picks hold at most one initiator and the rest are
+responder side. The slot, not `PICKS_PER_ROUND`, is what limits how fast
+a node gains connections.
 
 **Why ECDH and not a hash of the two public keys?** A value anyone can
 compute from two public keys and a block hash would tell anyone,
@@ -1019,11 +1079,25 @@ the pair value, the role bit, and the initiator, plus the ranking a node
 holding two of the entries derives. Implementations are expected to
 reproduce every encoding byte for byte, reject every invalid vector, and
 reproduce every pair value and role. The vectors use documentation
-address ranges; routability and the other checks in R-2.1, R-5.1, and
-R-7.3 still apply to real elements.
+address ranges, which are not globally routable, so an implementation
+checking them against its own validator has to waive routability as it
+does on a test network (R-2.5); routability and the other checks in
+R-2.1, R-5.1, and R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.8 (2026-10-18): a report counts on any connection the node opened
+  from a punch socket, and only once the handshake on it is complete, so
+  the rule names the connection and not the kind of peer; replacing a
+  family's key recomputes the shared secret of every entry of that
+  family, which the pair value needs in order to stay agreed; only a
+  disagreeing report and a missing acknowledgement count towards the
+  board pause, since the board service bit is an unauthenticated
+  advertisement, and only an acknowledgement clears the count; an
+  element's length must match its `net`; a `PUNCHKEY` element on any
+  other connection disconnects; board candidates must advertise
+  `NODE_P2P_V2`; the test-network group waiver covers source groups and
+  the per-group session budget; the 4-tuple error is named.
 * 0.4.7 (2026-10-18): a board connection is restricted from `verack`
   on, the handshake before it is the ordinary one; up to two picks per
   source group per round, so that two boards can fill three picks; an

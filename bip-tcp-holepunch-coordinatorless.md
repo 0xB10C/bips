@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.9
+  Version: 0.4.10
   Requires: 155, 324, 434
 ```
 
@@ -393,7 +393,7 @@ it[^time]. Valid `addr` lengths are 38 and 50 bytes.
   sends that visitor every entry whose connection is open, including the
   visitor's own entry if it stored it. When it stores or replaces an
   entry, it sends that element to every other visitor. Every
-  `BOARD_REFRESH` (30 min) it sends every entry whose connection is open
+  `BOARD_REFRESH` (10 min) it sends every entry whose connection is open
   to every visitor again, each visitor's own included[^refresh]. Entries
   in their grace period are kept for the per-address cap only and are not
   sent. Elements are sent in `addrv2` messages with the `time` the board
@@ -403,7 +403,7 @@ it[^time]. Valid `addr` lengths are 38 and 50 bytes.
   persist them, or include them in `getaddr` responses. Its entries exist
   only in memory and only for connections of its current run.
 - R-5.10 **Rate.** A node MUST NOT process more than `PUNCHKEY_PER_HOUR`
-  (240) elements from one peer in any hour, counting every element
+  (480) elements from one peer in any hour, counting every element
   received whether or not it is accepted. Further elements from that peer
   in that hour are ignored, which is not by itself a protocol violation,
   and a node SHOULD NOT send a peer more than that[^rate-limit]. A board
@@ -598,8 +598,8 @@ board names an endpoint that board saw connect[^source-cap].
 | `BOARD_VISITORS_MAX` / `BOARD_PER_GROUP` / `BOARD_IP_CAP` | 32 / 4 / 1 | R-5.5, R-5.7 |
 | `BOARD_ACK` | 60 s | R-5.3 |
 | `BOARD_GRACE` | 10 min | R-5.7 |
-| `BOARD_REFRESH` | 30 min | R-5.8 |
-| `PUNCHKEY_PER_HOUR` | 240 | R-5.10 |
+| `BOARD_REFRESH` | 10 min | R-5.8 |
+| `PUNCHKEY_PER_HOUR` | 480 | R-5.10 |
 | `SOURCE_CAP` | 64 | R-6.2 |
 | `TABLE_MAX` | 1024 | R-6.3 |
 | `ENTRY_TTL` | 1 h | R-6.4 |
@@ -619,7 +619,7 @@ about 70% success over millions of attempts.
 checked, so an attacker who injects invented
 elements at a few dozen points lets honest relay carry them everywhere,
 and every table ends up holding as much fiction as the attacker can
-afford, about 240 live fakes per injecting connection. Two nodes only
+afford, about 480 live fakes per injecting connection. Two nodes only
 pair if relay happened to deliver each to the other, which depends on
 how far announcements spread and fails as the square of that. And the
 one repair that keeps relay, forwarding only elements whose endpoint the
@@ -787,13 +787,20 @@ visitor that leaves a board would linger in every table until it
 expired. Re-sending every live entry on a schedule and expiring entries
 that have not been re-sent gives a withdrawal for free: a departed
 visitor fades from every table within `ENTRY_TTL`. The traffic is a few
-kilobytes per visitor per refresh.
+kilobytes per visitor per refresh. The interval also sets how fast a
+pair gets another chance, because a picked entry is gone until its
+board sends it again (R-7.6), so it is held near the block interval
+rather than at the slowest rate withdrawal alone would need.
 
 [^rate-limit]: A board sends each visitor at most one batch per refresh
 plus arrivals, and a visitor sends its board one element plus changes.
-The limit is a safety bound well above both, and counting rejected
-elements means that a stream of invalid keys spends the sender's budget
-rather than the receiver's processor.
+An honest board therefore needs at most
+(60 / `BOARD_REFRESH` + 1) x `BOARD_VISITORS_MAX` elements per hour,
+224 with these numbers, so the limit stays a safety bound well above
+the honest case; shortening the refresh or raising the visitor cap has
+to keep that inequality. Counting rejected elements means that a stream
+of invalid keys spends the sender's budget rather than the receiver's
+processor.
 
 [^source-cap]: What a board serves is the only way an entry gets into a
 table, so a lying board is the only way fiction gets in. The per-source
@@ -1100,6 +1107,11 @@ R-2.1, R-5.1, and R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.10 (2026-10-19): the board refresh drops to 10 minutes, near the
+  block interval, because it is what decides how long a pair waits for
+  another chance after a round in which only one side punched, and the
+  element budget per peer per hour doubles to keep an honest board's
+  worst hour well inside it.
 * 0.4.9 (2026-10-18): a node holds rounds and announces only while its
   blocks are within `TIP_LAG` of the best header it knows. Leaving
   initial block download is not enough: a node that is catching up

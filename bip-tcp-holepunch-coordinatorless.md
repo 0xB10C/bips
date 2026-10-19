@@ -8,7 +8,7 @@
   Assigned: ?
   License: BSD-2-Clause
   Discussion: 2026-10-16: https://delvingbitcoin.org/t/tcp-hole-punching-for-bitcoin-nodes-behind-home-nats/2497/22
-  Version: 0.4.10
+  Version: 0.4.11
   Requires: 155, 324, 434
 ```
 
@@ -51,6 +51,14 @@ TCP hole punching lets two such nodes connect directly. Roughly two
 thirds of home IPv4 NATs behave the way it needs, and IPv6 at home
 usually means no NAT and only a stateful firewall, which the same
 procedure passes[^numbers].
+
+Two such nodes have no path to each other at all today. Every link
+between them runs through the nodes that do accept inbound connections,
+which also pay for it in slots, and that set is small, fully
+enumerable, and increasingly hosted in data centres. A restriction
+there removes the hubs the rest of the network leans on. Links between
+home nodes are the part of the graph that is missing, and each one
+costs a listening node nothing.
 
 Hole punching needs two things: each node must know the other's external
 address and port, and both must connect at about the same moment. Other
@@ -187,7 +195,7 @@ endpoint), started by a pick (R-7.4).
   that merely arrives on the punch port is not a reporter[^who-reports].
 - R-2.2 The node has an external address for a family when at least two
   current reporting peers in different network groups report the same
-  endpoint. A single dissenting report changes nothing.
+  endpoint. A single dissenting report changes nothing[^bootstrap].
 - R-2.3 If two such sets report different endpoints, the node's mapping is
   not endpoint-independent or it has several addresses. It then has no
   external address for that family and MUST NOT announce until R-2.2
@@ -432,7 +440,8 @@ board names an endpoint that board saw connect[^source-cap].
   changed its key or its port[^replace]. An element carrying a stored
   `pubkey` under a different address never replaces anything; it is a
   distinct entry.
-- R-6.2 A node keeps at most `SOURCE_CAP` (64) entries per source group.
+- R-6.2 A node keeps at most `SOURCE_CAP` (64) entries per source
+  group[^pick-rate].
   To store a new entry for a full group it evicts an expired entry of that
   group if there is one, otherwise one chosen uniformly at
   random[^random-eviction]. A refresh evicts nothing.
@@ -802,6 +811,28 @@ to keep that inequality. Counting rejected elements means that a stream
 of invalid keys spends the sender's budget rather than the receiver's
 processor.
 
+[^bootstrap]: Two reports are also the condition a deployment has to
+meet before anything else works. A node's punch-port connections are
+its board connections, so with one reachable board it holds one report,
+has no external address, and every entry in its table fails R-7.3 for
+as long as that lasts. A first deployment therefore needs two reachable
+boards in distinct network groups before any node can announce, rather
+than one board with many visitors. Observed on signet: a node with a
+single usable board held 87 rounds over fifteen hours without a single
+candidate while its table held real entries, and announced within a
+second of its second board connecting.
+
+[^pick-rate]: Because both sides derive the same pair value, the number
+of pairs in which each side picks the other is set by
+`PICKS_PER_ROUND`, not by how many entries a table holds: with three
+picks it is about two per round whether the table holds sixty-four
+entries or a thousand, so a bigger table only lengthens the queue. What
+does cost pairings is a per-source cap below a board's roster, because
+each side then keeps a random part of the other's list and the two
+parts have to overlap: against a roster of 120 a cap of 64 gives about
+half the pairings, and against a roster of 1000 about a sixteenth.
+`SOURCE_CAP` and `BOARD_VISITORS_MAX` are kept in step for that reason.
+
 [^source-cap]: What a board serves is the only way an entry gets into a
 table, so a lying board is the only way fiction gets in. The per-source
 cap bounds what one board can plant, and two picks per source group per
@@ -1024,6 +1055,34 @@ served it, for the same address with a new key (R-6.1), so a lying board
 can churn its own entries and nothing else; a key seen from a new
 address never displaces the entry the node announced itself.
 
+**Duplicate addresses.** An attacker can register one address at
+several boards under a different key at each, so that the address
+appears more than once in a victim's table. An honest node's own
+duplicates collapse, since the same endpoint and key arriving from a
+second board is a refresh (R-6.1), and a victim holds only `BOARDS`
+board connections per family, so what an attacker gains is at most one
+extra entry per board it shares with the victim. Its network group then
+takes the best of those pair values and wins a pick with probability
+about k/(k + G - 1) rather than 1/G among G candidate groups. One pick
+per network group per round and `GROUP_SESSIONS_PER_HOUR` bound what
+winning buys, so duplicates buy a slightly better rate and no extra
+slots. Ignoring an element whose address is already stored from another
+source would remove even that, but it would also let a lying board
+block an honest entry by serving the victim's address under a junk key
+before the honest board serves the real one, which is what R-6.1 is
+written to prevent.
+
+**Use by other protocols.** A board is reachable and tells a visitor
+the endpoints of its other visitors, which is what a general NAT
+traversal service does. What bounds it is that every step is a Bitcoin
+connection: a visitor counts as one only after the version handshake
+and a `feature` message (R-3.5, R-5.5), a board stores only the
+endpoint it observed on that connection (R-5.6), and a punched
+connection that does not speak the v2 transport and complete `version`
+and `verack` is closed with no fallback (R-8.6). A board serves
+endpoints only to peers already running this protocol, and what they
+get is each other's endpoint, never a relay.
+
 **Grinding.** The key must be in the victim's table before the victim's
 tip reached the parent of the block whose hash enters the pair value,
 and `received_at` is the victim's clock. A board can choose when to pass
@@ -1046,7 +1105,12 @@ mean both must be the attacker's.
 **Board exhaustion.** A board's visitor pool is separate from its inbound
 limit, small, and capped per network group and per address, so filling
 it costs real addresses in several groups and denies only that board.
-A board may also simply refuse visitors.
+A board may also simply refuse visitors. The balancing eviction R-5.5
+permits is not plainly an improvement on refusing: honest visitors
+concentrate in the groups of large residential networks, so the most
+represented group is usually an honest one, and an attacker spread over
+many small groups could use the eviction to displace honest visitors
+rather than be locked out by a full pool. That is why it stays a MAY.
 
 **Chain dependence.** A node starved of blocks holds no rounds. Delaying
 its blocks delays its rounds but cannot choose the pair values without
@@ -1058,7 +1122,10 @@ the protocol.
 most `MAX_ACTIVE_SESSIONS` pending attempts and `HELD_MAX` held sockets,
 which are never read or written and are closed after `HOLD_MS`; at most
 `BOARD_VISITORS_MAX` board connections at a board; one hash per eligible
-entry per round.
+entry per round. An implementation should count the visitor pool in
+whatever file descriptor budget it reserves at startup, since R-5.5
+keeps the pool outside the ordinary inbound limit and its sockets are
+real.
 
 **Reports.** A board can report any address. Only two reporting peers
 in different network groups make an external address, and a single
@@ -1107,6 +1174,17 @@ R-2.1, R-5.1, and R-7.3 still apply to real elements.
 
 ## Changelog
 
+* 0.4.11 (2026-10-19): the motivation states what is actually missing,
+  which is any path between two home nodes that does not run through
+  the shrinking set of reachable nodes; two reports in distinct groups
+  are named as the condition a deployment must meet first, since one
+  board leaves a node without an external address however many visitors
+  that board has; duplicate registrations of one address and use of
+  boards by other protocols get their own security considerations; the
+  rationale records that the pairing rate follows the pick limit and
+  not the table size, which is why the per-source cap and the visitor
+  cap are kept in step, and that the balancing eviction a full board may
+  perform can displace honest visitors rather than protect them.
 * 0.4.10 (2026-10-19): the board refresh drops to 10 minutes, near the
   block interval, because it is what decides how long a pair waits for
   another chance after a round in which only one side punched, and the
